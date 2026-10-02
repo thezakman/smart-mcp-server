@@ -1,4 +1,8 @@
-# Smart Burp MCP Server
+<p align="center">
+  <img src="src/main/resources/mcp.png" alt="Smart Burp MCP Server logo" width="260">
+</p>
+
+<h1 align="center">Smart Burp MCP Server</h1>
 
 ## Overview
 
