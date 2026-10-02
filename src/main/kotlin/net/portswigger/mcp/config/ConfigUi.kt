@@ -183,9 +183,10 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
             isOpaque = false
             add(headerBox)
         }, BorderLayout.CENTER)
-        leftPanel.add(JLabel("TheZakMan").apply {
-            font = Design.Typography.labelMedium
-            foreground = Design.Colors.onSurfaceVariant
+        leftPanel.add(Anchor(
+            text = "https://thezakman.github.io/",
+            url = "https://thezakman.github.io/"
+        ).apply {
             horizontalAlignment = SwingConstants.CENTER
             border = BorderFactory.createEmptyBorder(
                 0, Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG
@@ -228,7 +229,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
 
     private fun createLogoLabel(): JLabel? {
         val resource = ConfigUi::class.java.getResource("/mcp.png") ?: return null
-        val logoSize = (Design.Spacing.XL * 6).coerceIn(160, 240)
+        val logoSize = (Design.Spacing.XL * 7).coerceIn(192, 280)
         val scaledImage = ImageIcon(resource).image.getScaledInstance(
             logoSize, logoSize, Image.SCALE_SMOOTH
         )
