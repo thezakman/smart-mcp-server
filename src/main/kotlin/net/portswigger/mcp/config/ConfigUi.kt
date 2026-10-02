@@ -69,12 +69,15 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     }
 
     private fun initializeComponents() {
-        serverConfigurationPanel = ServerConfigurationPanel(
-            config = config, enabledToggle = enabledToggle, validationErrorLabel = validationErrorLabel
-        )
-
         advancedOptionsPanel = AdvancedOptionsPanel(
             hostField = hostField, portField = portField, reinstallNotice = reinstallNotice
+        )
+
+        serverConfigurationPanel = ServerConfigurationPanel(
+            config = config,
+            enabledToggle = enabledToggle,
+            validationErrorLabel = validationErrorLabel,
+            advancedOptionsPanel = advancedOptionsPanel
         )
 
         autoApproveTargetsPanel = AutoApproveTargetsPanel(config = config)
@@ -197,7 +200,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             background = Design.Colors.surface
             border = BorderFactory.createEmptyBorder(
-                Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG
+                Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD
             )
         }
 
@@ -211,12 +214,10 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
         }
 
         rightPanelContent.add(serverConfigurationPanel)
-        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
+        rightPanelContent.add(createVerticalStrut(Design.Spacing.SM))
 
         rightPanelContent.add(autoApproveTargetsPanel)
-        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
-        rightPanelContent.add(advancedOptionsPanel)
-        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
+        rightPanelContent.add(createVerticalStrut(Design.Spacing.SM))
         rightPanelContent.add(installationPanel)
         rightPanelContent.add(createVerticalGlue())
 

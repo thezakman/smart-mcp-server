@@ -35,7 +35,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
         background = Design.Colors.surface
         border = BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(Design.Colors.outlineVariant, 1),
-            BorderFactory.createEmptyBorder(Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD)
+            BorderFactory.createEmptyBorder(Design.Spacing.SM, Design.Spacing.SM, Design.Spacing.SM, Design.Spacing.SM)
         )
     }
 
@@ -47,13 +47,13 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
             alignmentX = LEFT_ALIGNMENT
             font = Design.Typography.bodyMedium
             foreground = Design.Colors.onSurfaceVariant
-            border = BorderFactory.createEmptyBorder(0, 0, Design.Spacing.SM, 0)
+            border = BorderFactory.createEmptyBorder(0, 0, 2, 0)
         }
         val examplesLabel = JLabel("Examples: example.com, localhost:8080, *.api.com").apply {
             alignmentX = LEFT_ALIGNMENT
             font = Design.Typography.labelMedium
             foreground = Design.Colors.onSurfaceVariant
-            border = BorderFactory.createEmptyBorder(0, 0, Design.Spacing.MD, 0)
+            border = BorderFactory.createEmptyBorder(0, 0, Design.Spacing.SM, 0)
         }
         add(descLabel)
         add(examplesLabel)
@@ -84,7 +84,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
 
             init {
                 selectionMode = ListSelectionModel.SINGLE_SELECTION
-                visibleRowCount = 5
+                visibleRowCount = 4
                 font = Design.Typography.bodyMedium
                 background = Design.Colors.listBackground
                 foreground = Design.Colors.onSurface
@@ -190,10 +190,10 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
 
     private fun createScrollPane(targetsList: JList<String>): JScrollPane {
         return JScrollPane(targetsList).apply {
-            val baseHeight = 220
+            val baseHeight = 150
             val baseWidth = 400
             val scaleFactor = Design.Spacing.MD / 16f
-            val responsiveHeight = (baseHeight * scaleFactor).toInt().coerceAtLeast(150)
+            val responsiveHeight = (baseHeight * scaleFactor).toInt().coerceAtLeast(120)
             val responsiveWidth = (baseWidth * scaleFactor).toInt().coerceAtLeast(250)
 
             maximumSize = Dimension(Int.MAX_VALUE, responsiveHeight)
@@ -214,16 +214,15 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
             alignmentX = LEFT_ALIGNMENT
-            border = BorderFactory.createEmptyBorder(0, 0, Design.Spacing.MD, 0)
+            border = BorderFactory.createEmptyBorder(0, 0, Design.Spacing.SM, 0)
             add(scrollPane)
         }
     }
 
     private fun createButtonsPanel(targetsList: JList<String>, listModel: DefaultListModel<String>): JPanel {
-        val buttonsPanel = JPanel(FlowLayout(FlowLayout.LEFT, Design.Spacing.SM, Design.Spacing.SM)).apply {
+        val buttonsPanel = JPanel(FlowLayout(FlowLayout.LEFT, Design.Spacing.SM, 0)).apply {
             isOpaque = false
             alignmentX = LEFT_ALIGNMENT
-            border = BorderFactory.createEmptyBorder(Design.Spacing.SM, 0, 0, 0)
         }
 
         val addButton = Design.createFilledButton("Add").apply {

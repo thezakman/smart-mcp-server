@@ -40,7 +40,7 @@ class InstallationPanel(
         background = Design.Colors.surface
         border = BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(Design.Colors.outlineVariant, 1),
-            BorderFactory.createEmptyBorder(Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD)
+            BorderFactory.createEmptyBorder(Design.Spacing.SM, Design.Spacing.SM, Design.Spacing.SM, Design.Spacing.SM)
         )
     }
 
@@ -70,7 +70,7 @@ class InstallationPanel(
     }
 
     private fun createButtonRow(): JPanel {
-        val buttonRow = JPanel(FlowLayout(FlowLayout.LEFT, Design.Spacing.SM, Design.Spacing.SM)).apply {
+        val buttonRow = JPanel(FlowLayout(FlowLayout.LEFT, Design.Spacing.SM, 0)).apply {
             alignmentX = LEFT_ALIGNMENT
             isOpaque = false
         }

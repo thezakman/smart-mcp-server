@@ -15,7 +15,8 @@ import javax.swing.Box.createVerticalStrut
 class ServerConfigurationPanel(
     private val config: McpConfig,
     private val enabledToggle: ToggleSwitch,
-    private val validationErrorLabel: WarningLabel
+    private val validationErrorLabel: WarningLabel,
+    private val advancedOptionsPanel: AdvancedOptionsPanel
 ) : JPanel() {
 
     private lateinit var alwaysAllowHttpHistoryCheckBox: JCheckBox
@@ -39,16 +40,14 @@ class ServerConfigurationPanel(
         background = Design.Colors.surface
         border = BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(Design.Colors.outlineVariant, 1),
-            BorderFactory.createEmptyBorder(Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD)
+            BorderFactory.createEmptyBorder(Design.Spacing.SM, Design.Spacing.SM, Design.Spacing.SM, Design.Spacing.SM)
         )
     }
 
     private fun buildPanel() {
         add(createHeaderPanel())
-        add(createVerticalStrut(Design.Spacing.MD))
-        add(createServerControlPanel())
         add(validationErrorLabel)
-        add(createVerticalStrut(Design.Spacing.MD))
+        add(createVerticalStrut(Design.Spacing.SM))
 
         val configEditingToolingCheckBox = createCheckBoxWithSubtitle(
             "Enable tools that can edit your config",
@@ -90,7 +89,7 @@ class ServerConfigurationPanel(
             isOpaque = false
             alignmentX = LEFT_ALIGNMENT
             add(dataAccessApprovalCheckBox)
-            add(createVerticalStrut(Design.Spacing.SM))
+            add(createVerticalStrut(2))
             add(createGroupHint("Allow without prompting"))
             add(createVerticalStrut(2))
             add(alwaysAllowHttpHistoryCheckBox)
@@ -117,34 +116,18 @@ class ServerConfigurationPanel(
             add(accessGroup)
             add(configurationGroup)
         })
+        add(createVerticalStrut(Design.Spacing.SM))
+        add(advancedOptionsPanel)
     }
 
     private fun createHeaderPanel(): JPanel {
-        return JPanel().apply {
+        val titlePanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
             alignmentX = LEFT_ALIGNMENT
             add(Design.createSectionLabel("Server Configuration"))
             add(createVerticalStrut(2))
             add(JLabel("Control the server and its approval boundaries.").apply {
-                font = Design.Typography.bodyMedium
-                foreground = Design.Colors.onSurfaceVariant
-                alignmentX = LEFT_ALIGNMENT
-            })
-        }
-    }
-
-    private fun createServerControlPanel(): JPanel {
-        val serverDetails = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            isOpaque = false
-            add(JLabel("MCP server").apply {
-                font = Design.Typography.labelLarge
-                foreground = Design.Colors.onSurface
-                alignmentX = LEFT_ALIGNMENT
-            })
-            add(createVerticalStrut(2))
-            add(JLabel("Start or stop access for connected AI clients.").apply {
                 font = Design.Typography.bodyMedium
                 foreground = Design.Colors.onSurfaceVariant
                 alignmentX = LEFT_ALIGNMENT
@@ -163,15 +146,9 @@ class ServerConfigurationPanel(
         enabledPanel.add(enabledToggle)
 
         return JPanel(BorderLayout(Design.Spacing.MD, 0)).apply {
-            background = Design.Colors.listAlternatingBackground
+            isOpaque = false
             alignmentX = LEFT_ALIGNMENT
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Design.Colors.outlineVariant, 1),
-                BorderFactory.createEmptyBorder(
-                    Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD
-                )
-            )
-            add(serverDetails, BorderLayout.CENTER)
+            add(titlePanel, BorderLayout.CENTER)
             add(enabledPanel, BorderLayout.EAST)
         }
     }
@@ -187,7 +164,7 @@ class ServerConfigurationPanel(
             border = BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Design.Colors.outlineVariant, 1),
                 BorderFactory.createEmptyBorder(
-                    Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD
+                    Design.Spacing.SM, Design.Spacing.SM, Design.Spacing.SM, Design.Spacing.SM
                 )
             )
 
@@ -202,13 +179,13 @@ class ServerConfigurationPanel(
                 foreground = Design.Colors.onSurfaceVariant
                 alignmentX = LEFT_ALIGNMENT
             })
-            add(createVerticalStrut(Design.Spacing.MD))
+            add(createVerticalStrut(Design.Spacing.SM))
 
             components.forEachIndexed { index, component ->
                 component.alignmentX = LEFT_ALIGNMENT
                 add(component)
                 if (index < components.lastIndex) {
-                    add(createVerticalStrut(Design.Spacing.MD))
+                    add(createVerticalStrut(Design.Spacing.SM))
                 }
             }
         }
