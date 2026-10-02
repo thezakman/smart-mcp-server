@@ -19,6 +19,8 @@ class ServerConfigurationPanel(
     private val advancedOptionsPanel: AdvancedOptionsPanel
 ) : JPanel() {
 
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
+
     private lateinit var alwaysAllowHttpHistoryCheckBox: JCheckBox
     private lateinit var alwaysAllowWebSocketHistoryCheckBox: JCheckBox
     private lateinit var alwaysAllowOrganizerCheckBox: JCheckBox

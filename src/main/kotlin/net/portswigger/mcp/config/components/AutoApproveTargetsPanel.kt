@@ -43,20 +43,24 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
         add(Design.createSectionLabel("Auto-Approved HTTP Targets"))
         add(Box.createVerticalStrut(2))
 
-        val descLabel = JLabel("Specify domains and hosts that can be accessed without approval.").apply {
+        val helperRow = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
             alignmentX = LEFT_ALIGNMENT
-            font = Design.Typography.bodyMedium
-            foreground = Design.Colors.onSurfaceVariant
-            border = BorderFactory.createEmptyBorder(0, 0, 2, 0)
-        }
-        val examplesLabel = JLabel("Examples: example.com, localhost:8080, *.api.com").apply {
-            alignmentX = LEFT_ALIGNMENT
-            font = Design.Typography.labelMedium
-            foreground = Design.Colors.onSurfaceVariant
+            isOpaque = false
             border = BorderFactory.createEmptyBorder(0, 0, Design.Spacing.SM, 0)
+            add(JLabel("Specify domains and hosts that can be accessed without approval.").apply {
+                font = Design.Typography.bodyMedium
+                foreground = Design.Colors.onSurfaceVariant
+            })
+            add(Box.createHorizontalStrut(Design.Spacing.MD))
+            add(JLabel("Examples: example.com, localhost:8080, *.api.com").apply {
+                font = Design.Typography.bodyMedium
+                foreground = Design.Colors.onSurface
+            })
+            add(Box.createHorizontalGlue())
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
-        add(descLabel)
-        add(examplesLabel)
+        add(helperRow)
 
         val listModel = DefaultListModel<String>()
         targetsList = createTargetsList(listModel)
@@ -196,7 +200,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
             val responsiveHeight = (baseHeight * scaleFactor).toInt().coerceAtLeast(120)
             val responsiveWidth = (baseWidth * scaleFactor).toInt().coerceAtLeast(250)
 
-            maximumSize = Dimension(Int.MAX_VALUE, responsiveHeight)
+            maximumSize = Dimension(Int.MAX_VALUE, Int.MAX_VALUE)
             preferredSize = Dimension(responsiveWidth, responsiveHeight)
             minimumSize = Dimension((responsiveWidth * 0.625f).toInt(), (responsiveHeight * 0.68f).toInt())
             border = BorderFactory.createCompoundBorder(
@@ -271,6 +275,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
         buttonsPanel.add(addButton)
         buttonsPanel.add(removeButton)
         buttonsPanel.add(clearButton)
+        buttonsPanel.maximumSize = Dimension(Int.MAX_VALUE, buttonsPanel.preferredSize.height)
 
         return buttonsPanel
     }

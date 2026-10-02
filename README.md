@@ -6,7 +6,7 @@
 
 ## Overview
 
-Connect Burp Suite to Codex CLI, Claude Desktop and other MCP clients. This fork extends PortSwigger's
+Connect Burp Suite to Codex CLI, Claude CLI, Claude Desktop and other MCP clients. This fork extends PortSwigger's
 MCP server with compact evidence indexes, native Burp IDs, Repeater/Intruder capture, Organizer workflows,
 response comparison, diagnostics and reviewed single-request mutations.
 
@@ -21,7 +21,7 @@ fork point; the upstream project may continue to evolve independently.
 
 | Area | PortSwigger original at the fork point | Smart Burp MCP Server |
 | --- | --- | --- |
-| Client setup | Claude Desktop installer and manual stdio proxy extraction | Keeps both and adds a shell-safe **Copy Codex CLI command** using `java` from the terminal `PATH` |
+| Client setup | Claude Desktop installer and manual stdio proxy extraction | Keeps both and adds shell-safe **Claude CLI** and **Codex CLI** setup commands using `java` from the terminal `PATH` |
 | Proxy history | Full request/response pagination and basic regex search | Adds compact summaries, native Burp IDs, highlight colors, timing, MIME/size metadata, scope/static filters, bounded regex work and snapshot-aware pagination |
 | Message detail | Bulk entries with a fixed output limit | Fetches selected HTTP and WebSocket messages by native ID with Unicode-safe chunks and explicit continuation offsets |
 | Sensitive traffic | Captured messages returned by the original bulk tools | Keeps raw cookies, tokens and credentials intact by default; optional masking is explicit and tool-specific |
@@ -34,7 +34,7 @@ fork point; the upstream project may continue to evolve independently.
 | Diagnostics | Server startup state and generic errors | Adds nested startup diagnostics, runtime/JVM/proxy status, capture counts and a metadata-only tool action log |
 | Packaging | Embeds the proxy by updating the completed archive with an external `jar` command | Declares the proxy as a Gradle archive input and always emits `build/libs/burp-mcp-all.jar` |
 | UI | Uses the Swing/Burp list colors directly | Keeps Burp theming and derives restrained alternating rows that remain readable in dark and light modes |
-| Regression coverage | Original unit and MCP integration tests | Retains the original suite and adds Codex, triage, filtering, handoff, diagnostics and mutation regressions; currently 109 tests |
+| Regression coverage | Original unit and MCP integration tests | Retains the original suite and adds Claude CLI, Codex, triage, filtering, handoff, diagnostics and mutation regressions |
 
 ### Compatibility retained
 
@@ -54,6 +54,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 ## Features
 
 - Native Codex CLI setup command using `java` from the terminal `PATH`
+- Native Claude CLI setup command stored at user scope
 - Claude Desktop installer and embedded stdio-to-SSE proxy
 - Compact Proxy, Site Map, Organizer, Repeater and Intruder indexes
 - Native Burp IDs and content-derived Site Map keys for traceable evidence retrieval
@@ -119,7 +120,7 @@ Upon successful loading, the MCP Server Extension will be active within Burp Sui
 Configuration for the extension is done through the Burp Suite UI in the `MCP` tab.
 - **Toggle the MCP Server**: The `Enabled` checkbox controls whether the MCP server is active.
 - **Enable config editing**: The `Enable tools that can edit your config` checkbox allows the MCP server to expose tools which can edit Burp configuration files.
-- **Advanced options**: You can configure the port and host for the MCP server. By default, it listens on `http://127.0.0.1:9876`.
+- **Connection address**: You can configure the host and port used by MCP clients. By default, it listens on `http://127.0.0.1:9876`.
 
 ### Codex CLI Client
 
@@ -169,6 +170,25 @@ proxy and produces the exact `codex mcp add` command for the host, port and oper
 The extension serves **SSE**. Codex's `--url` option expects **Streamable HTTP**, so this integration must use the
 packaged stdio proxy. See the [official Codex MCP documentation](https://developers.openai.com/codex/mcp/).
 
+### Claude CLI Client
+
+Claude Code's CLI can launch the same packaged stdio proxy and keep the configuration available across projects.
+
+1. Run `claude --version` and `java --version` in the terminal where you use Claude Code.
+2. Open **MCP → Installation**, click **Copy Claude CLI command**, paste the command into your terminal and press
+   Enter. The extension copies a command equivalent to:
+
+   ```sh
+   claude mcp add --scope user burp -- java -jar "/absolute/path/to/mcp-proxy-all.jar" --sse-url http://127.0.0.1:9876
+   ```
+
+3. Keep Burp open with the MCP server enabled, restart Claude Code and run `claude mcp list` to confirm that `burp`
+   is connected.
+
+The command uses user scope so the Burp connection is available from every project. If you change the host or port
+in Burp, copy and run the generated command again. See the
+[official Claude Code MCP documentation](https://docs.anthropic.com/en/docs/claude-code/mcp).
+
 ### Claude Desktop Client
 
 To fully utilize the MCP Server Extension with Claude, you need to configure your Claude client settings appropriately.
@@ -215,7 +235,7 @@ References: [manual setup PR #83](https://github.com/PortSwigger/mcp-server/pull
 
 ```mermaid
 flowchart LR
-    Client[Codex / Claude / MCP client] -->|stdio| Proxy[Embedded MCP proxy]
+    Client[Codex CLI / Claude CLI / Claude Desktop] -->|stdio| Proxy[Embedded MCP proxy]
     Proxy -->|SSE on 127.0.0.1:9876| Extension[Burp MCP extension]
     Extension --> Burp[Montoya API]
 ```

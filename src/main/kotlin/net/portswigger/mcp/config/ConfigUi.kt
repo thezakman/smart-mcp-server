@@ -214,12 +214,11 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
         }
 
         rightPanelContent.add(serverConfigurationPanel)
-        rightPanelContent.add(createVerticalStrut(Design.Spacing.SM))
+        rightPanelContent.add(createVerticalStrut(Design.Spacing.MD))
 
         rightPanelContent.add(autoApproveTargetsPanel)
-        rightPanelContent.add(createVerticalStrut(Design.Spacing.SM))
+        rightPanelContent.add(createVerticalStrut(Design.Spacing.MD))
         rightPanelContent.add(installationPanel)
-        rightPanelContent.add(createVerticalGlue())
 
         val columnsPanel = ResponsiveColumnsPanel(leftPanel, rightPanel)
         panel.add(columnsPanel, BorderLayout.CENTER)

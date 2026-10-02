@@ -8,9 +8,10 @@ import net.portswigger.mcp.config.Anchor
 import net.portswigger.mcp.config.Design
 import net.portswigger.mcp.config.Dialogs
 import net.portswigger.mcp.config.McpConfig
-import net.portswigger.mcp.providers.ManualProxyInstallerProvider
 import net.portswigger.mcp.providers.Provider
+import java.awt.Dimension
 import java.awt.FlowLayout
+import java.awt.GridLayout
 import javax.swing.*
 import javax.swing.Box.createVerticalStrut
 import javax.swing.JOptionPane.*
@@ -22,6 +23,8 @@ class InstallationPanel(
     private val reinstallNotice: WarningLabel,
     private val parentComponent: JComponent
 ) : JPanel() {
+
+    override fun getMaximumSize(): Dimension = Dimension(Int.MAX_VALUE, preferredSize.height)
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -47,47 +50,39 @@ class InstallationPanel(
     private fun buildPanel() {
         add(Design.createSectionLabel("Installation"))
         add(createVerticalStrut(2))
-        add(JLabel("Connect Claude Desktop or Codex CLI, or export the proxy for manual setup.").apply {
+        add(JLabel("Connect Claude Desktop, Claude CLI or Codex CLI, or export the proxy for manual setup.").apply {
             alignmentX = LEFT_ALIGNMENT
             font = Design.Typography.bodyMedium
             foreground = Design.Colors.onSurfaceVariant
         })
         add(createVerticalStrut(Design.Spacing.SM))
 
-        val installOptions = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            alignmentX = LEFT_ALIGNMENT
-            isOpaque = false
-        }
-
-        val buttonRow = createButtonRow()
-        installOptions.add(buttonRow)
-        add(installOptions)
+        add(createButtonRow())
         add(createVerticalStrut(Design.Spacing.SM))
-
-        val manualInstallPanel = createManualInstallPanel()
-        add(manualInstallPanel)
+        add(createManualInstallPanel())
     }
 
     private fun createButtonRow(): JPanel {
-        val buttonRow = JPanel(FlowLayout(FlowLayout.LEFT, Design.Spacing.SM, 0)).apply {
+        val buttonRow = JPanel(GridLayout(0, 2, Design.Spacing.SM, Design.Spacing.SM)).apply {
             alignmentX = LEFT_ALIGNMENT
             isOpaque = false
         }
 
-        providers.forEach { provider ->
-            val button = createProviderButton(provider)
+        providers.forEachIndexed { index, provider ->
+            val button = createProviderButton(provider, isPrimary = index < 2)
             buttonRow.add(button)
         }
+
+        buttonRow.maximumSize = Dimension(Int.MAX_VALUE, buttonRow.preferredSize.height)
 
         return buttonRow
     }
 
-    private fun createProviderButton(provider: Provider): JButton {
-        val button = if (provider is ManualProxyInstallerProvider) {
-            Design.createOutlinedButton(provider.installButtonText)
-        } else {
+    private fun createProviderButton(provider: Provider, isPrimary: Boolean): JButton {
+        val button = if (isPrimary) {
             Design.createFilledButton(provider.installButtonText)
+        } else {
+            Design.createOutlinedButton(provider.installButtonText)
         }
 
         return button.apply {
@@ -149,10 +144,20 @@ class InstallationPanel(
             })
             add(
                 Anchor(
+                    text = "Claude CLI setup guide",
+                    url = "https://github.com/thezakman/smart-mcp-server#claude-cli-client"
+                )
+            )
+            add(JLabel("•").apply {
+                foreground = Design.Colors.onSurfaceVariant
+            })
+            add(
+                Anchor(
                     text = "Claude Desktop setup guide",
                     url = "https://github.com/thezakman/smart-mcp-server#claude-desktop-client"
                 )
             )
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
     }
 
