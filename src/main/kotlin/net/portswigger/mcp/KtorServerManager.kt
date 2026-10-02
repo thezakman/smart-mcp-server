@@ -14,6 +14,8 @@ import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.mcp
 import net.portswigger.mcp.config.McpConfig
+import net.portswigger.mcp.tools.SERVER_INSTRUCTIONS
+import net.portswigger.mcp.tools.TrafficStore
 import net.portswigger.mcp.tools.registerTools
 import java.net.URI
 import java.util.concurrent.ExecutorService
@@ -26,7 +28,7 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 
     override fun start(config: McpConfig, callback: (ServerState) -> Unit) {
-        callback(ServerState.Starting)
+        publish(ServerState.Starting, callback)
 
         executor.submit {
             try {
@@ -34,11 +36,11 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                 server = null
 
                 val mcpServer = Server(
-                    serverInfo = Implementation("burp-suite", "1.1.2"), options = ServerOptions(
+                    serverInfo = Implementation("burp-suite", "1.3.0"), options = ServerOptions(
                         capabilities = ServerCapabilities(
                             tools = ServerCapabilities.Tools(listChanged = false)
                         )
-                    )
+                    ), instructions = SERVER_INSTRUCTIONS
                 )
 
                 server = embeddedServer(Netty, port = config.port, host = config.host) {
@@ -97,32 +99,41 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                     }
 
                     mcpServer.registerTools(api, config)
-                }.apply {
-                    start(wait = false)
                 }
+                // Retain the engine before starting so a partial startup can be cleaned up on failure.
+                server!!.start(wait = false)
 
                 api.logging().logToOutput("Started MCP server on ${config.host}:${config.port}")
-                callback(ServerState.Running)
+                publish(ServerState.Running, callback)
 
             } catch (e: Exception) {
+                val failedServer = server
+                server = null
+                try {
+                    failedServer?.stop(0, 1000)
+                } catch (cleanupError: Exception) {
+                    e.addSuppressed(cleanupError)
+                }
+                TrafficStore.shutdown()
                 api.logging().logToError(e)
-                callback(ServerState.Failed(e))
+                publish(ServerState.Failed(e), callback)
             }
         }
     }
 
     override fun stop(callback: (ServerState) -> Unit) {
-        callback(ServerState.Stopping)
+        publish(ServerState.Stopping, callback)
 
         executor.submit {
             try {
                 server?.stop(1000, 5000)
                 server = null
+                TrafficStore.shutdown()
                 api.logging().logToOutput("Stopped MCP server")
-                callback(ServerState.Stopped)
+                publish(ServerState.Stopped, callback)
             } catch (e: Exception) {
                 api.logging().logToError(e)
-                callback(ServerState.Failed(e))
+                publish(ServerState.Failed(e), callback)
             }
         }
     }
@@ -130,9 +141,16 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
     override fun shutdown() {
         server?.stop(1000, 5000)
         server = null
+        TrafficStore.shutdown()
 
         executor.shutdown()
         executor.awaitTermination(10, TimeUnit.SECONDS)
+        RuntimeDiagnostics.update(ServerState.Stopped)
+    }
+
+    private fun publish(state: ServerState, callback: (ServerState) -> Unit) {
+        RuntimeDiagnostics.update(state)
+        callback(state)
     }
 
     private fun isValidOrigin(origin: String): Boolean {

@@ -5,8 +5,11 @@ import burp.api.montoya.MontoyaApi
 import net.portswigger.mcp.config.ConfigUi
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.providers.ClaudeDesktopProvider
+import net.portswigger.mcp.providers.CodexCliProvider
 import net.portswigger.mcp.providers.ManualProxyInstallerProvider
 import net.portswigger.mcp.providers.ProxyJarManager
+import net.portswigger.mcp.tools.TrafficStore
+import net.portswigger.mcp.tools.ToolAuditLog
 
 @Suppress("unused")
 class ExtensionBase : BurpExtension {
@@ -22,6 +25,7 @@ class ExtensionBase : BurpExtension {
         val configUi = ConfigUi(
             config = config, providers = listOf(
                 ClaudeDesktopProvider(api.logging(), proxyJarManager),
+                CodexCliProvider(api.logging(), proxyJarManager),
                 ManualProxyInstallerProvider(api.logging(), proxyJarManager),
             )
         )
@@ -44,6 +48,8 @@ class ExtensionBase : BurpExtension {
 
         api.extension().registerUnloadingHandler {
             serverManager.shutdown()
+            TrafficStore.shutdown()
+            ToolAuditLog.clear()
             configUi.cleanup()
             config.cleanup()
         }

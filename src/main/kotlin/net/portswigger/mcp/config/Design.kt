@@ -28,8 +28,22 @@ object Design {
         val listSelectionBackground: Color get() = UIManager.getColor("List.selectionBackground") ?: Color(0xE3F2FD)
         val listSelectionForeground: Color get() = UIManager.getColor("List.selectionForeground") ?: Color(0x1976D2)
         val listHoverBackground: Color get() = UIManager.getColor("List.hoverBackground") ?: Color(0xF0F8FF)
-        val listAlternatingBackground: Color get() = UIManager.getColor("List.alternateRowColor") ?: Color(0xFAFAFA)
+        // Some Burp/macOS dark themes expose List.alternateRowColor as white. Derive a restrained
+        // stripe from the active list surface so alternating rows remain visible without flashing.
+        val listAlternatingBackground: Color get() = blend(listBackground, onSurface, 0.045f)
         val listBorder: Color get() = UIManager.getColor("List.border") ?: Color(0xDDDDDD)
+
+        private fun blend(base: Color, tint: Color, amount: Float): Color {
+            val ratio = amount.coerceIn(0f, 1f)
+            fun channel(baseValue: Int, tintValue: Int): Int =
+                (baseValue + (tintValue - baseValue) * ratio).toInt().coerceIn(0, 255)
+            return Color(
+                channel(base.red, tint.red),
+                channel(base.green, tint.green),
+                channel(base.blue, tint.blue),
+                base.alpha
+            )
+        }
     }
 
     object Typography {

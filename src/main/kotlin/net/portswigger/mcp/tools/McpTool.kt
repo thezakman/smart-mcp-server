@@ -24,8 +24,9 @@ inline fun <reified I : Any> Server.mcpTool(
     val inputSchema = I::class.asInputSchema()
 
     val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, request ->
+        val startedAt = System.nanoTime()
         try {
-            CallToolResult(
+            val result = CallToolResult(
                 content = execute(
                     Json.decodeFromJsonElement(
                         serializer,
@@ -34,7 +35,10 @@ inline fun <reified I : Any> Server.mcpTool(
                 ),
                 isError = false
             )
+            ToolAuditLog.add(toolName, true, (System.nanoTime() - startedAt) / 1_000_000)
+            result
         } catch (e: Exception) {
+            ToolAuditLog.add(toolName, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
             CallToolResult(
                 content = listOf(TextContent("Error: ${e.message}")),
                 isError = true
@@ -128,7 +132,15 @@ inline fun Server.mcpTool(
     crossinline execute: () -> String
 ) {
     val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, _ ->
-        CallToolResult(content = listOf(TextContent(execute())), isError = false)
+        val startedAt = System.nanoTime()
+        try {
+            val result = CallToolResult(content = listOf(TextContent(execute())), isError = false)
+            ToolAuditLog.add(name, true, (System.nanoTime() - startedAt) / 1_000_000)
+            result
+        } catch (e: Exception) {
+            ToolAuditLog.add(name, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
+            CallToolResult(content = listOf(TextContent("Error: ${e.message}")), isError = true)
+        }
     }
     addTool(name = name, description = description, inputSchema = ToolSchema(), handler = handler)
 }

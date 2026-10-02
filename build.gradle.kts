@@ -1,34 +1,5 @@
 import java.time.Instant
 
-abstract class EmbedProxyJarTask : DefaultTask() {
-    @get:InputFile
-    abstract val shadowJarFile: RegularFileProperty
-
-    @get:InputDirectory
-    abstract val projectDir: DirectoryProperty
-
-    @get:Inject
-    abstract val execOperations: ExecOperations
-
-    @TaskAction
-    fun embedJar() {
-        val shadowJar = shadowJarFile.get().asFile
-        val libsDir = projectDir.dir("libs").get().asFile
-        val proxyJarFile = File(libsDir, "mcp-proxy-all.jar")
-
-        if (!proxyJarFile.exists()) {
-            throw GradleException("Proxy JAR not found at: ${proxyJarFile.absolutePath}")
-        }
-
-        execOperations.exec {
-            workingDir(projectDir.get().asFile)
-            commandLine("jar", "uf", shadowJar.absolutePath, "-C", libsDir.absolutePath, proxyJarFile.name)
-        }
-
-        logger.lifecycle("Embedded proxy JAR into ${shadowJar.name}")
-    }
-}
-
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -96,8 +67,17 @@ tasks {
     }
 
     shadowJar {
+        archiveFileName.set("burp-mcp-all.jar")
         archiveClassifier.set("")
         mergeServiceFiles()
+        // Let Gradle package the resource once, without an external jar command or in-place ZIP mutation.
+        val packagedProxyJar = layout.projectDirectory.file("libs/mcp-proxy-all.jar").asFile
+        from(packagedProxyJar)
+        doFirst {
+            check(packagedProxyJar.isFile) {
+                "Missing libs/mcp-proxy-all.jar; restore the packaged stdio proxy before building."
+            }
+        }
 
         manifest {
             attributes(
@@ -128,12 +108,10 @@ tasks {
         duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     }
 
-    register<EmbedProxyJarTask>("embedProxyJar") {
+    register("embedProxyJar") {
         group = "build"
-        description = "Embeds the MCP proxy JAR into the shadow JAR"
+        description = "Builds the extension with its embedded MCP proxy JAR"
         dependsOn(shadowJar)
-        shadowJarFile.set(shadowJar.flatMap { it.archiveFile })
-        projectDir.set(layout.projectDirectory)
     }
 
     build {

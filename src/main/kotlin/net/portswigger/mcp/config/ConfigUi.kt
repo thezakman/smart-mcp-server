@@ -1,6 +1,5 @@
 package net.portswigger.mcp.config
 
-import io.ktor.util.network.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -138,10 +137,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
                     enabledToggle.isEnabled = true
                     enabledToggle.setState(false, animate = false)
 
-                    val friendlyMessage = when (state.exception) {
-                        is UnresolvedAddressException -> "Unable to resolve address"
-                        else -> state.exception.message ?: state.exception.javaClass.simpleName
-                    }
+                    val friendlyMessage = serverFailureMessage(state.exception, config.host, config.port)
 
                     Dialogs.showMessageDialog(
                         panel, "Failed to start Burp MCP Server: $friendlyMessage", ERROR_MESSAGE

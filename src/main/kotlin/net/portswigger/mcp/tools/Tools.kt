@@ -109,6 +109,9 @@ private fun normalizePrelude(prelude: String): String = prelude
     .replace("\n", "\r\n")      // All LF → proper CRLF
 
 fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
+    registerHistoryTriageTools(api, config)
+    registerFilteredHistoryTools(api, config)
+    registerAdvancedTools(api, config)
 
     mcpTool<SendHttp1Request>("Issues an HTTP/1.1 request and returns the response.") {
         val allowed = runBlocking {
@@ -308,19 +311,6 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         api.proxy().history().asSequence().map { encodeHistoryItem(it.toSerializableForm()) }
     }
 
-    mcpPaginatedTool<GetProxyHttpHistoryRegex>("Displays items matching a specified regex within the proxy HTTP history") {
-        val allowed = runBlocking {
-            checkDataAccessOrDeny(DataAccessType.HTTP_HISTORY, config, api, "HTTP history")
-        }
-        if (!allowed) {
-            return@mcpPaginatedTool sequenceOf("HTTP history access denied by Burp Suite")
-        }
-
-        val compiledRegex = Pattern.compile(regex)
-        api.proxy().history { it.contains(compiledRegex) }.asSequence()
-            .map { encodeHistoryItem(it.toSerializableForm()) }
-    }
-
     mcpPaginatedTool<GetOrganizerItems>("Displays items within the Organizer tab") {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.ORGANIZER, config, api, "Organizer")
@@ -342,31 +332,6 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
         val compiledRegex = Pattern.compile(regex)
         api.organizer().items { it.contains(compiledRegex) }.asSequence()
-            .map { encodeHistoryItem(it.toSerializableForm()) }
-    }
-
-    mcpPaginatedTool<GetProxyWebsocketHistory>("Displays items within the proxy WebSocket history") {
-        val allowed = runBlocking {
-            checkDataAccessOrDeny(DataAccessType.WEBSOCKET_HISTORY, config, api, "WebSocket history")
-        }
-        if (!allowed) {
-            return@mcpPaginatedTool sequenceOf("WebSocket history access denied by Burp Suite")
-        }
-
-        api.proxy().webSocketHistory().asSequence()
-            .map { encodeHistoryItem(it.toSerializableForm()) }
-    }
-
-    mcpPaginatedTool<GetProxyWebsocketHistoryRegex>("Displays items matching a specified regex within the proxy WebSocket history") {
-        val allowed = runBlocking {
-            checkDataAccessOrDeny(DataAccessType.WEBSOCKET_HISTORY, config, api, "WebSocket history")
-        }
-        if (!allowed) {
-            return@mcpPaginatedTool sequenceOf("WebSocket history access denied by Burp Suite")
-        }
-
-        val compiledRegex = Pattern.compile(regex)
-        api.proxy().webSocketHistory { it.contains(compiledRegex) }.asSequence()
             .map { encodeHistoryItem(it.toSerializableForm()) }
     }
 
@@ -510,20 +475,10 @@ data class GetScannerIssues(override val count: Int, override val offset: Int) :
 data class GetProxyHttpHistory(override val count: Int, override val offset: Int) : Paginated
 
 @Serializable
-data class GetProxyHttpHistoryRegex(val regex: String, override val count: Int, override val offset: Int) : Paginated
-
-@Serializable
 data class GetOrganizerItems(override val count: Int, override val offset: Int) : Paginated
 
 @Serializable
 data class GetOrganizerItemsRegex(val regex: String, override val count: Int, override val offset: Int) : Paginated
-
-@Serializable
-data class GetProxyWebsocketHistory(override val count: Int, override val offset: Int) : Paginated
-
-@Serializable
-data class GetProxyWebsocketHistoryRegex(val regex: String, override val count: Int, override val offset: Int) :
-    Paginated
 
 @Serializable
 data class GenerateCollaboratorPayload(

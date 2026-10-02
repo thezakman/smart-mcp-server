@@ -85,6 +85,13 @@ class McpServerIntegrationTest {
             val toolNames = tools.map { it.name }
             assertTrue(toolNames.contains("output_project_options"), "Server should have output_project_options tool")
             assertTrue(toolNames.contains("output_user_options"), "Server should have output_user_options tool")
+            assertTrue(toolNames.contains("list_site_map"), "Server should expose the compact Site Map index")
+            assertTrue(toolNames.contains("list_organizer_items"), "Server should expose the compact Organizer index")
+            assertTrue(toolNames.contains("get_repeater_traffic"), "Server should expose captured Repeater traffic")
+            assertTrue(toolNames.contains("compare_http_exchanges"), "Server should expose read-only comparison")
+            assertTrue(toolNames.contains("preview_request_mutation"), "Server should expose mutation preview")
+            assertTrue(toolNames.contains("send_mutated_request"), "Server should expose single mutation send")
+            assertTrue(toolNames.contains("get_mcp_diagnostics"), "Server should expose diagnostics")
             
             val pingResult = client.ping()
             assertNotNull(pingResult, "Ping should return a result")
