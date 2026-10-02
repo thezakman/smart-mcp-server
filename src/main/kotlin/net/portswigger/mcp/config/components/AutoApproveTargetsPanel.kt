@@ -14,6 +14,9 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
 
     private var listenerHandle: ListenerHandle? = null
     private var refreshListener: (() -> Unit)? = null
+    private lateinit var targetsList: JList<String>
+    private lateinit var removeButton: JButton
+    private lateinit var clearButton: JButton
 
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -38,7 +41,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
 
     private fun buildPanel() {
         add(Design.createSectionLabel("Auto-Approved HTTP Targets"))
-        add(Box.createVerticalStrut(Design.Spacing.MD))
+        add(Box.createVerticalStrut(2))
 
         val descLabel = JLabel("Specify domains and hosts that can be accessed without approval.").apply {
             alignmentX = LEFT_ALIGNMENT
@@ -56,7 +59,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
         add(examplesLabel)
 
         val listModel = DefaultListModel<String>()
-        val targetsList = createTargetsList(listModel)
+        targetsList = createTargetsList(listModel)
         updateTargetsList(listModel)
 
         refreshListener = {
@@ -72,6 +75,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
 
         val buttonsPanel = createButtonsPanel(targetsList, listModel)
         add(buttonsPanel)
+        updateActionButtons(targetsList, listModel)
     }
 
     private fun createTargetsList(listModel: DefaultListModel<String>): JList<String> {
@@ -91,6 +95,9 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
                 addMouseMotionListener(createMouseMotionListener())
                 addMouseListener(createMouseListener())
                 addKeyListener(createKeyListener(listModel))
+                addListSelectionListener {
+                    updateActionButtons(this, listModel)
+                }
                 isFocusable = true
             }
 
@@ -241,7 +248,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
             }
         }
 
-        val removeButton = Design.createOutlinedButton("Remove").apply {
+        removeButton = Design.createOutlinedButton("Remove").apply {
             addActionListener {
                 val selectedIndex = targetsList.selectedIndex
                 if (selectedIndex >= 0) {
@@ -250,7 +257,7 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
             }
         }
 
-        val clearButton = Design.createOutlinedButton("Clear All").apply {
+        clearButton = Design.createTextButton("Clear All").apply {
             addActionListener {
                 val result = Dialogs.showConfirmDialog(
                     findBurpFrame(), "Remove all auto-approved targets?", YES_NO_OPTION
@@ -269,10 +276,22 @@ class AutoApproveTargetsPanel(private val config: McpConfig) : JPanel() {
         return buttonsPanel
     }
 
+    private fun updateActionButtons(targetsList: JList<String>, listModel: DefaultListModel<String>) {
+        if (::removeButton.isInitialized) {
+            removeButton.isEnabled = targetsList.selectedIndex >= 0
+        }
+        if (::clearButton.isInitialized) {
+            clearButton.isEnabled = !listModel.isEmpty
+        }
+    }
+
     private fun updateTargetsList(listModel: DefaultListModel<String>) {
         listModel.clear()
         config.getAutoApproveTargetsList().forEach {
             listModel.addElement(it)
+        }
+        if (::removeButton.isInitialized && ::clearButton.isInitialized) {
+            updateActionButtons(targetsList, listModel)
         }
     }
 

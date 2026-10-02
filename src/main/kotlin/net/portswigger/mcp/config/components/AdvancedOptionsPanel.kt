@@ -40,12 +40,21 @@ class AdvancedOptionsPanel(
 
     private fun buildPanel() {
         add(Design.createSectionLabel("Advanced Options"))
+        add(createVerticalStrut(2))
+        add(JLabel("Set the address used by connected AI clients.").apply {
+            alignmentX = LEFT_ALIGNMENT
+            font = Design.Typography.bodyMedium
+            foreground = Design.Colors.onSurfaceVariant
+        })
         add(createVerticalStrut(Design.Spacing.MD))
 
-        val formPanel = createFormPanel(
-            "Server host:" to hostField, "Server port:" to portField
-        )
-        add(formPanel)
+        add(createFormPanel())
+        add(createVerticalStrut(Design.Spacing.SM))
+        reinstallNotice.apply {
+            font = Design.Typography.labelMedium
+            border = BorderFactory.createEmptyBorder(Design.Spacing.SM, 0, 0, 0)
+        }
+        add(reinstallNotice)
     }
 
     private fun setupFieldTracking() {
@@ -64,48 +73,61 @@ class AdvancedOptionsPanel(
         })
     }
 
-    private fun createFormPanel(vararg fields: Pair<String, JComponent>): JPanel {
-        val formPanel = JPanel(GridBagLayout()).apply {
+    private fun createFormPanel(): JPanel {
+        return JPanel(GridBagLayout()).apply {
             isOpaque = false
             alignmentX = LEFT_ALIGNMENT
-        }
 
-        fields.forEachIndexed { index, (labelText, field) ->
-            val labelColumn = index * 2
-            val labelInsets = if (index == 0) {
-                Insets(Design.Spacing.SM, 0, Design.Spacing.SM, Design.Spacing.SM)
-            } else {
-                Insets(Design.Spacing.SM, Design.Spacing.LG, Design.Spacing.SM, Design.Spacing.SM)
-            }
-
-            formPanel.add(JLabel(labelText).apply {
-                font = Design.Typography.bodyLarge
-                foreground = Design.Colors.onSurface
+            add(JLabel("Server host:").apply {
+                font = Design.Typography.labelMedium
+                foreground = Design.Colors.onSurfaceVariant
             }, GridBagConstraints().apply {
-                gridx = labelColumn
+                gridx = 0
                 gridy = 0
-                fill = GridBagConstraints.NONE
-                weightx = 0.0
                 anchor = GridBagConstraints.WEST
-                insets = labelInsets
+                insets = Insets(0, 0, 0, Design.Spacing.SM)
             })
 
-            if (field is JTextField) {
-                field.preferredSize = Dimension(if (index == 0) 260 else 120, 32)
-                field.font = Design.Typography.bodyLarge
-            }
-
-            formPanel.add(field, GridBagConstraints().apply {
-                gridx = labelColumn + 1
+            configureField(hostField, Design.Spacing.MD * 20)
+            add(hostField, GridBagConstraints().apply {
+                gridx = 1
                 gridy = 0
-                fill = GridBagConstraints.HORIZONTAL
-                weightx = if (index == 0) 0.65 else 0.35
                 anchor = GridBagConstraints.WEST
-                insets = Insets(Design.Spacing.SM, 0, Design.Spacing.SM, 0)
+            })
+
+            add(JLabel("Server port:").apply {
+                font = Design.Typography.labelMedium
+                foreground = Design.Colors.onSurfaceVariant
+            }, GridBagConstraints().apply {
+                gridx = 2
+                gridy = 0
+                anchor = GridBagConstraints.WEST
+                insets = Insets(0, Design.Spacing.LG, 0, Design.Spacing.SM)
+            })
+
+            configureField(portField, Design.Spacing.MD * 8)
+            add(portField, GridBagConstraints().apply {
+                gridx = 3
+                gridy = 0
+                anchor = GridBagConstraints.WEST
+            })
+
+            add(Box.createHorizontalGlue(), GridBagConstraints().apply {
+                gridx = 4
+                gridy = 0
+                weightx = 1.0
+                fill = GridBagConstraints.HORIZONTAL
             })
         }
+    }
 
-        return formPanel
+    private fun configureField(field: JTextField, width: Int) {
+        field.apply {
+            preferredSize = Dimension(width, 36)
+            minimumSize = Dimension(width, 36)
+            maximumSize = Dimension(width, 36)
+            font = Design.Typography.bodyLarge
+        }
     }
 
     fun setFieldsEnabled(enabled: Boolean) {

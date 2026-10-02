@@ -45,6 +45,8 @@ class ServerConfigurationPanel(
 
     private fun buildPanel() {
         add(createHeaderPanel())
+        add(createVerticalStrut(Design.Spacing.MD))
+        add(createServerControlPanel())
         add(validationErrorLabel)
         add(createVerticalStrut(Design.Spacing.MD))
 
@@ -118,12 +120,31 @@ class ServerConfigurationPanel(
     }
 
     private fun createHeaderPanel(): JPanel {
-        val heading = JPanel().apply {
+        return JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
+            alignmentX = LEFT_ALIGNMENT
             add(Design.createSectionLabel("Server Configuration"))
             add(createVerticalStrut(2))
             add(JLabel("Control the server and its approval boundaries.").apply {
+                font = Design.Typography.bodyMedium
+                foreground = Design.Colors.onSurfaceVariant
+                alignmentX = LEFT_ALIGNMENT
+            })
+        }
+    }
+
+    private fun createServerControlPanel(): JPanel {
+        val serverDetails = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            add(JLabel("MCP server").apply {
+                font = Design.Typography.labelLarge
+                foreground = Design.Colors.onSurface
+                alignmentX = LEFT_ALIGNMENT
+            })
+            add(createVerticalStrut(2))
+            add(JLabel("Start or stop access for connected AI clients.").apply {
                 font = Design.Typography.bodyMedium
                 foreground = Design.Colors.onSurfaceVariant
                 alignmentX = LEFT_ALIGNMENT
@@ -142,9 +163,15 @@ class ServerConfigurationPanel(
         enabledPanel.add(enabledToggle)
 
         return JPanel(BorderLayout(Design.Spacing.MD, 0)).apply {
-            isOpaque = false
+            background = Design.Colors.listAlternatingBackground
             alignmentX = LEFT_ALIGNMENT
-            add(heading, BorderLayout.CENTER)
+            border = BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Design.Colors.outlineVariant, 1),
+                BorderFactory.createEmptyBorder(
+                    Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD, Design.Spacing.MD
+                )
+            )
+            add(serverDetails, BorderLayout.CENTER)
             add(enabledPanel, BorderLayout.EAST)
         }
     }

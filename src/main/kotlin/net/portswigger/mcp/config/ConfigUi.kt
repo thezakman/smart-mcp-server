@@ -43,7 +43,7 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     private val validationErrorLabel = WarningLabel()
     private val hostField = JTextField(15)
     private val portField = JTextField(5)
-    private val reinstallNotice = WarningLabel("Make sure to reinstall after changing server settings")
+    private val reinstallNotice = WarningLabel("Server address changed. Run your client setup again to reconnect.")
 
     private lateinit var serverConfigurationPanel: ServerConfigurationPanel
     private lateinit var advancedOptionsPanel: AdvancedOptionsPanel
@@ -214,14 +214,11 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
         rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
 
         rightPanelContent.add(autoApproveTargetsPanel)
-
-        rightPanelContent.add(createVerticalStrut(15))
+        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
         rightPanelContent.add(advancedOptionsPanel)
-        rightPanelContent.add(createVerticalGlue())
-        rightPanelContent.add(reinstallNotice)
-        rightPanelContent.add(createVerticalStrut(10))
-
+        rightPanelContent.add(createVerticalStrut(Design.Spacing.LG))
         rightPanelContent.add(installationPanel)
+        rightPanelContent.add(createVerticalGlue())
 
         val columnsPanel = ResponsiveColumnsPanel(leftPanel, rightPanel)
         panel.add(columnsPanel, BorderLayout.CENTER)

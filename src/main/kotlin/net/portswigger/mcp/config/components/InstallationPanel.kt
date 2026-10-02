@@ -8,6 +8,7 @@ import net.portswigger.mcp.config.Anchor
 import net.portswigger.mcp.config.Design
 import net.portswigger.mcp.config.Dialogs
 import net.portswigger.mcp.config.McpConfig
+import net.portswigger.mcp.providers.ManualProxyInstallerProvider
 import net.portswigger.mcp.providers.Provider
 import java.awt.FlowLayout
 import javax.swing.*
@@ -45,6 +46,12 @@ class InstallationPanel(
 
     private fun buildPanel() {
         add(Design.createSectionLabel("Installation"))
+        add(createVerticalStrut(2))
+        add(JLabel("Connect Claude Desktop or Codex CLI, or export the proxy for manual setup.").apply {
+            alignmentX = LEFT_ALIGNMENT
+            font = Design.Typography.bodyMedium
+            foreground = Design.Colors.onSurfaceVariant
+        })
         add(createVerticalStrut(Design.Spacing.SM))
 
         val installOptions = JPanel().apply {
@@ -77,7 +84,13 @@ class InstallationPanel(
     }
 
     private fun createProviderButton(provider: Provider): JButton {
-        return Design.createFilledButton(provider.installButtonText).apply {
+        val button = if (provider is ManualProxyInstallerProvider) {
+            Design.createOutlinedButton(provider.installButtonText)
+        } else {
+            Design.createFilledButton(provider.installButtonText)
+        }
+
+        return button.apply {
             addActionListener {
                 handleProviderInstall(provider)
             }

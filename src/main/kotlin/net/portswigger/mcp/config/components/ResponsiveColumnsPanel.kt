@@ -2,14 +2,17 @@ package net.portswigger.mcp.config.components
 
 import net.portswigger.mcp.config.Design
 import java.awt.BorderLayout
-import java.awt.GridBagConstraints
-import java.awt.GridBagLayout
+import java.awt.Container
+import java.awt.Dimension
+import java.awt.LayoutManager
+import kotlin.math.max
 import javax.swing.BorderFactory
 import javax.swing.BoxLayout
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 
 class ResponsiveColumnsPanel(private val leftPanel: JPanel, private val rightPanel: JScrollPane) : JPanel() {
+    private val leftColumnRatio = 0.32
     private val minWidthForTwoColumns = 900
     private val minWidthForLargePadding = 700
     private var lastLayout = Layout.SINGLE_COLUMN
@@ -58,20 +61,9 @@ class ResponsiveColumnsPanel(private val leftPanel: JPanel, private val rightPan
 
         when (lastLayout) {
             Layout.TWO_COLUMNS -> {
-                layout = GridBagLayout()
-                val c = GridBagConstraints().apply {
-                    fill = GridBagConstraints.BOTH
-                    weighty = 1.0
-                }
-
-                c.gridx = 0
-                c.gridy = 0
-                c.weightx = 0.35
-                add(leftPanel, c)
-
-                c.gridx = 1
-                c.weightx = 0.65
-                add(rightPanel, c)
+                layout = WeightedColumnsLayout(leftColumnRatio)
+                add(leftPanel)
+                add(rightPanel)
             }
 
             Layout.SINGLE_COLUMN -> {
@@ -101,5 +93,42 @@ class ResponsiveColumnsPanel(private val leftPanel: JPanel, private val rightPan
 
         revalidate()
         repaint()
+    }
+
+    private class WeightedColumnsLayout(private val leftRatio: Double) : LayoutManager {
+        override fun addLayoutComponent(name: String?, component: java.awt.Component?) = Unit
+
+        override fun removeLayoutComponent(component: java.awt.Component?) = Unit
+
+        override fun preferredLayoutSize(parent: Container): Dimension = combinedSize(parent, preferred = true)
+
+        override fun minimumLayoutSize(parent: Container): Dimension = combinedSize(parent, preferred = false)
+
+        private fun combinedSize(parent: Container, preferred: Boolean): Dimension {
+            if (parent.componentCount < 2) return Dimension(0, 0)
+            val left = if (preferred) parent.getComponent(0).preferredSize else parent.getComponent(0).minimumSize
+            val right = if (preferred) parent.getComponent(1).preferredSize else parent.getComponent(1).minimumSize
+            val insets = parent.insets
+            return Dimension(
+                left.width + right.width + insets.left + insets.right,
+                max(left.height, right.height) + insets.top + insets.bottom
+            )
+        }
+
+        override fun layoutContainer(parent: Container) {
+            if (parent.componentCount < 2) return
+            val insets = parent.insets
+            val availableWidth = (parent.width - insets.left - insets.right).coerceAtLeast(0)
+            val availableHeight = (parent.height - insets.top - insets.bottom).coerceAtLeast(0)
+            val leftWidth = (availableWidth * leftRatio).toInt()
+
+            parent.getComponent(0).setBounds(insets.left, insets.top, leftWidth, availableHeight)
+            parent.getComponent(1).setBounds(
+                insets.left + leftWidth,
+                insets.top,
+                availableWidth - leftWidth,
+                availableHeight
+            )
+        }
     }
 }
