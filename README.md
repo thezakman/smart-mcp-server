@@ -121,6 +121,54 @@ Configuration for the extension is done through the Burp Suite UI in the `MCP` t
 - **Enable config editing**: The `Enable tools that can edit your config` checkbox allows the MCP server to expose tools which can edit Burp configuration files.
 - **Advanced options**: You can configure the port and host for the MCP server. By default, it listens on `http://127.0.0.1:9876`.
 
+### Codex CLI Client
+
+Codex uses the packaged stdio proxy to connect to the SSE server running inside Burp. The extension prepares the
+proxy and produces the exact `codex mcp add` command for the host, port and operating system currently in use.
+
+1. **Check the prerequisites**
+
+   Run `codex --version` and `java --version` in the terminal where you use Codex. Java 21 or newer must be
+   available through `PATH`.
+
+2. **Configure Codex to use Burp MCP**
+
+   Choose either method:
+
+   - **Option 1: Copy the command from Burp**
+
+     Open **MCP → Installation**, click **Copy Codex CLI command**, paste the command into your terminal and press
+     Enter. Copying only places the command on the clipboard; you remain in control of when it runs.
+
+   - **Option 2: Configure it manually**
+
+     Click **Extract server proxy jar**, then run:
+
+     ```sh
+     codex mcp add burp -- java -jar "/absolute/path/to/mcp-proxy-all.jar" --sse-url http://127.0.0.1:9876
+     codex mcp get burp
+     codex mcp list
+     ```
+
+     Codex writes an entry equivalent to this in `~/.codex/config.toml`:
+
+     ```toml
+     [mcp_servers.burp]
+     command = "java"
+     args = ["-jar", "/absolute/path/to/mcp-proxy-all.jar", "--sse-url", "http://127.0.0.1:9876"]
+     ```
+
+     Keep `command = "java"` so Codex uses Java from the terminal `PATH`. If you change the host or port in Burp,
+     copy and run the generated command again.
+
+3. **Restart the Codex session**
+
+   Keep Burp open with the MCP server enabled, start a new Codex session, then use `/mcp` to confirm that `burp`
+   is connected and exposing tools.
+
+The extension serves **SSE**. Codex's `--url` option expects **Streamable HTTP**, so this integration must use the
+packaged stdio proxy. See the [official Codex MCP documentation](https://developers.openai.com/codex/mcp/).
+
 ### Claude Desktop Client
 
 To fully utilize the MCP Server Extension with Claude, you need to configure your Claude client settings appropriately.
@@ -158,34 +206,6 @@ The extension has an installer which will automatically configure the client set
       ```
 
 3. **Restart Claude Desktop** - assuming Burp is running with the extension loaded.
-
-## Manual installations
-If you want to install the MCP server manually you can either use the extension's SSE server directly or the packaged
-Stdio proxy server.
-
-### Codex CLI
-
-In the Burp **MCP → Installation** panel, click **Copy Codex CLI command**. Paste the copied command
-into your terminal (zsh/bash on macOS/Linux, PowerShell on Windows) and press Enter.
-The button extracts the packaged stdio proxy and copies a single-line `codex mcp add burp -- ...`
-command using `java` from PATH, the proxy path and configured server address. Arguments are quoted
-for the target shell; copying does not execute Codex or change its configuration.
-
-Run the command in a terminal where `codex` works. Java 21 or newer must be on Codex's PATH.
-Codex handles TOML parsing and adds or replaces the
-`burp` entry while preserving unrelated configuration. `CODEX_HOME`, if set, comes from your terminal.
-If you change the server host or port, copy and run the command again.
-
-For manual setup, extract the proxy JAR from the installation panel and run:
-
-```sh
-codex mcp add burp -- java -jar "/absolute/path/to/mcp-proxy.jar" --sse-url http://127.0.0.1:9876
-codex mcp get burp
-codex mcp list
-```
-
-Restart the Codex session and use `/mcp` to inspect the connection. This extension serves **SSE**;
-Codex's `--url` option is for **Streamable HTTP**, so use the packaged stdio proxy here.
 
 References: [manual setup PR #83](https://github.com/PortSwigger/mcp-server/pull/83),
 [installer proposal #85](https://github.com/PortSwigger/mcp-server/pull/85), and

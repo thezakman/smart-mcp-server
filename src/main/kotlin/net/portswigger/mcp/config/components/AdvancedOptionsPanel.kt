@@ -70,34 +70,39 @@ class AdvancedOptionsPanel(
             alignmentX = LEFT_ALIGNMENT
         }
 
-        val gbc = GridBagConstraints().apply {
-            insets = Insets(Design.Spacing.SM, 0, Design.Spacing.SM, Design.Spacing.MD)
-            anchor = GridBagConstraints.WEST
-        }
-
         fields.forEachIndexed { index, (labelText, field) ->
-            gbc.gridx = 0
-            gbc.gridy = index
-            gbc.fill = GridBagConstraints.NONE
-            gbc.weightx = 0.0
+            val labelColumn = index * 2
+            val labelInsets = if (index == 0) {
+                Insets(Design.Spacing.SM, 0, Design.Spacing.SM, Design.Spacing.SM)
+            } else {
+                Insets(Design.Spacing.SM, Design.Spacing.LG, Design.Spacing.SM, Design.Spacing.SM)
+            }
+
             formPanel.add(JLabel(labelText).apply {
                 font = Design.Typography.bodyLarge
                 foreground = Design.Colors.onSurface
-            }, gbc)
-
-            gbc.gridx = 1
-            gbc.fill = GridBagConstraints.HORIZONTAL
-            gbc.weightx = 1.0
-            gbc.insets = Insets(Design.Spacing.SM, 0, Design.Spacing.SM, 0)
+            }, GridBagConstraints().apply {
+                gridx = labelColumn
+                gridy = 0
+                fill = GridBagConstraints.NONE
+                weightx = 0.0
+                anchor = GridBagConstraints.WEST
+                insets = labelInsets
+            })
 
             if (field is JTextField) {
-                field.preferredSize = Dimension(200, 32)
+                field.preferredSize = Dimension(if (index == 0) 260 else 120, 32)
                 field.font = Design.Typography.bodyLarge
             }
 
-            formPanel.add(field, gbc)
-
-            gbc.insets = Insets(Design.Spacing.SM, 0, Design.Spacing.SM, Design.Spacing.MD)
+            formPanel.add(field, GridBagConstraints().apply {
+                gridx = labelColumn + 1
+                gridy = 0
+                fill = GridBagConstraints.HORIZONTAL
+                weightx = if (index == 0) 0.65 else 0.35
+                anchor = GridBagConstraints.WEST
+                insets = Insets(Design.Spacing.SM, 0, Design.Spacing.SM, 0)
+            })
         }
 
         return formPanel

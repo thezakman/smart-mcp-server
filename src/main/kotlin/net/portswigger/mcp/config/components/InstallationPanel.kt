@@ -122,13 +122,22 @@ class InstallationPanel(
     }
 
     private fun createManualInstallPanel(): JPanel {
-        return JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+        return JPanel(FlowLayout(FlowLayout.LEFT, Design.Spacing.SM, 0)).apply {
             alignmentX = LEFT_ALIGNMENT
             isOpaque = false
             add(
                 Anchor(
-                    text = "Manual install steps",
-                    url = "https://github.com/PortSwigger/mcp-server?tab=readme-ov-file#manual-installations"
+                    text = "Codex CLI setup guide",
+                    url = "https://github.com/thezakman/smart-mcp-server#codex-cli-client"
+                )
+            )
+            add(JLabel("•").apply {
+                foreground = Design.Colors.onSurfaceVariant
+            })
+            add(
+                Anchor(
+                    text = "Claude Desktop setup guide",
+                    url = "https://github.com/thezakman/smart-mcp-server#claude-desktop-client"
                 )
             )
         }
