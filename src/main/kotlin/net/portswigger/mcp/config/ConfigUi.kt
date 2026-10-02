@@ -10,6 +10,7 @@ import net.portswigger.mcp.providers.Provider
 import java.awt.BorderLayout
 import java.awt.Component.CENTER_ALIGNMENT
 import java.awt.GridBagLayout
+import java.awt.Image
 import javax.swing.*
 import javax.swing.Box.*
 import javax.swing.JOptionPane.ERROR_MESSAGE
@@ -150,9 +151,15 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
     }
 
     private fun buildUi() {
-        val leftPanel = JPanel(GridBagLayout())
+        val leftPanel = JPanel(BorderLayout()).apply {
+            isOpaque = false
+        }
 
         val headerBox = createVerticalBox().apply {
+            createLogoLabel()?.let { logo ->
+                add(logo)
+                add(createVerticalStrut(Design.Spacing.LG))
+            }
             add(JLabel("Burp MCP Server").apply {
                 font = Design.Typography.headlineMedium
                 foreground = Design.Colors.onSurface
@@ -172,7 +179,18 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
                 ).apply { alignmentX = CENTER_ALIGNMENT })
         }
 
-        leftPanel.add(headerBox)
+        leftPanel.add(JPanel(GridBagLayout()).apply {
+            isOpaque = false
+            add(headerBox)
+        }, BorderLayout.CENTER)
+        leftPanel.add(JLabel("TheZakMan").apply {
+            font = Design.Typography.labelMedium
+            foreground = Design.Colors.onSurfaceVariant
+            horizontalAlignment = SwingConstants.CENTER
+            border = BorderFactory.createEmptyBorder(
+                0, Design.Spacing.LG, Design.Spacing.LG, Design.Spacing.LG
+            )
+        }, BorderLayout.SOUTH)
 
         val rightPanelContent = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -206,5 +224,18 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
 
         val columnsPanel = ResponsiveColumnsPanel(leftPanel, rightPanel)
         panel.add(columnsPanel, BorderLayout.CENTER)
+    }
+
+    private fun createLogoLabel(): JLabel? {
+        val resource = ConfigUi::class.java.getResource("/mcp.png") ?: return null
+        val logoSize = (Design.Spacing.XL * 6).coerceIn(160, 240)
+        val scaledImage = ImageIcon(resource).image.getScaledInstance(
+            logoSize, logoSize, Image.SCALE_SMOOTH
+        )
+
+        return JLabel(ImageIcon(scaledImage)).apply {
+            alignmentX = CENTER_ALIGNMENT
+            accessibleContext.accessibleName = "MCP logo"
+        }
     }
 }
