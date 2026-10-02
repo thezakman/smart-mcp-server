@@ -8,6 +8,45 @@ response comparison, diagnostics and reviewed single-request mutations.
 
 For more information about the protocol visit: [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 
+## How this fork differs from the original
+
+This project started from PortSwigger's official
+[`mcp-server`](https://github.com/PortSwigger/mcp-server) at commit
+[`642e6fa`](https://github.com/PortSwigger/mcp-server/commit/642e6fa). The comparison below describes that
+fork point; the upstream project may continue to evolve independently.
+
+| Area | PortSwigger original at the fork point | Smart Burp MCP Server |
+| --- | --- | --- |
+| Client setup | Claude Desktop installer and manual stdio proxy extraction | Keeps both and adds a shell-safe **Copy Codex CLI command** using `java` from the terminal `PATH` |
+| Proxy history | Full request/response pagination and basic regex search | Adds compact summaries, native Burp IDs, highlight colors, timing, MIME/size metadata, scope/static filters, bounded regex work and snapshot-aware pagination |
+| Message detail | Bulk entries with a fixed output limit | Fetches selected HTTP and WebSocket messages by native ID with Unicode-safe chunks and explicit continuation offsets |
+| Sensitive traffic | Captured messages returned by the original bulk tools | Keeps raw cookies, tokens and credentials intact by default; optional masking is explicit and tool-specific |
+| Site Map | No compact Site Map MCP workflow | Adds filtered compact indexing and content-derived SHA-256 keys with selective detail retrieval |
+| Organizer | Bulk read and regex search | Adds compact index/detail, native IDs, notes, highlight updates and saving existing captured exchanges without target traffic |
+| Repeater and Intruder | Can create tabs from supplied MCP content | Also opens exact Proxy-history requests by ID and captures subsequent Repeater/Intruder exchanges in bounded memory buffers |
+| Response analysis | Caller compares raw results manually | Adds read-only comparison of status, sizes, hashes, response headers and JSON key paths |
+| Request changes | Caller constructs and sends a complete request | Adds previewed single-request mutation for method, path, header, body and common parameter types; send requires the preview SHA-256 and target approval |
+| MCP guidance | Tool descriptions only | Adds server initialize instructions that direct clients to compact index → selected detail workflows |
+| Diagnostics | Server startup state and generic errors | Adds nested startup diagnostics, runtime/JVM/proxy status, capture counts and a metadata-only tool action log |
+| Packaging | Embeds the proxy by updating the completed archive with an external `jar` command | Declares the proxy as a Gradle archive input and always emits `build/libs/burp-mcp-all.jar` |
+| UI | Uses the Swing/Burp list colors directly | Keeps Burp theming and derives restrained alternating rows that remain readable in dark and light modes |
+| Regression coverage | Original unit and MCP integration tests | Retains the original suite and adds Codex, triage, filtering, handoff, diagnostics and mutation regressions; currently 109 tests |
+
+### Compatibility retained
+
+- Original HTTP/1.1, HTTP/2, Repeater, Intruder, configuration, editor and utility tools remain available.
+- Scanner and Collaborator tools remain conditional on Burp Suite Professional.
+- The default local endpoint remains `127.0.0.1:9876` and the embedded proxy still bridges stdio clients to SSE.
+- Existing bulk Proxy and Organizer tools remain for clients that already depend on them. Their compact replacements
+  are preferred for new workflows because they avoid loading unrelated bodies into the MCP context.
+- The original project-data and per-target approval controls remain in force.
+
+### Design direction
+
+The fork focuses on evidence traceability and controlled interaction: discover through compact indexes, retain native
+IDs, retrieve only the messages needed, compare captured evidence locally, preview changes, and send one reviewed
+request at a time. It deliberately does not include an automatic payload batch, retry loop or offensive agent prompt.
+
 ## Features
 
 - Native Codex CLI setup command using `java` from the terminal `PATH`
