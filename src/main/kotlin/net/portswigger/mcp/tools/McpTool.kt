@@ -35,7 +35,11 @@ data class ToolBehavior(
 val READ_ONLY_TOOL = ToolBehavior(readOnly = true, destructive = false, idempotent = true, openWorld = false)
 val LOCAL_MUTATION_TOOL = ToolBehavior(readOnly = false, destructive = false, idempotent = false, openWorld = false)
 val EXTERNAL_REQUEST_TOOL = ToolBehavior(readOnly = false, destructive = false, idempotent = false, openWorld = true)
+val OPEN_WORLD_READ_TOOL = ToolBehavior(readOnly = true, destructive = false, idempotent = true, openWorld = true)
+val OPEN_WORLD_MUTATION_TOOL = ToolBehavior(readOnly = false, destructive = false, idempotent = false, openWorld = true)
 val DESTRUCTIVE_CONFIG_TOOL = ToolBehavior(readOnly = false, destructive = true, idempotent = false, openWorld = false)
+
+class ToolBusyException(message: String) : IllegalStateException(message)
 
 @OptIn(InternalSerializationApi::class)
 inline fun <reified I : Any> Server.mcpTool(
@@ -59,7 +63,8 @@ inline fun <reified I : Any> Server.mcpTool(
                 ),
                 isError = false
             )
-            ToolAuditLog.add(toolName, true, (System.nanoTime() - startedAt) / 1_000_000)
+            ToolAuditLog.add(toolName, true, (System.nanoTime() - startedAt) / 1_000_000,
+                resultChars = result.content.textCharacterCount())
             result
         } catch (e: Exception) {
             ToolAuditLog.add(toolName, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
@@ -103,10 +108,11 @@ inline fun <reified I : Any> Server.mcpUnitTool(
 
 inline fun <reified I : Paginated, J : Any> Server.mcpPaginatedTool(
     description: String,
+    behavior: ToolBehavior = READ_ONLY_TOOL,
     noinline mapper: (J) -> CharSequence = { it.toString() },
     crossinline execute: I.() -> List<J>
 ) {
-    mcpTool<I>(description, execute = {
+    mcpTool<I>(description, behavior, execute = {
 
         val items = execute(this)
 
@@ -127,9 +133,10 @@ inline fun <reified I : Paginated, J : Any> Server.mcpPaginatedTool(
 
 inline fun <reified I : Paginated> Server.mcpPaginatedTool(
     description: String,
+    behavior: ToolBehavior = READ_ONLY_TOOL,
     crossinline execute: I.() -> Sequence<String>
 ) {
-    mcpTool<I>(description, execute = {
+    mcpTool<I>(description, behavior, execute = {
         val seq = execute(this)
         val paginated = seq.drop(offset).take(count).toList()
 
@@ -151,7 +158,16 @@ inline fun Server.mcpTool(
     crossinline execute: () -> List<ContentBlock>
 ) {
     val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, _ ->
-        CallToolResult(content = execute(), isError = false)
+        val startedAt = System.nanoTime()
+        try {
+            val result = CallToolResult(content = execute(), isError = false)
+            ToolAuditLog.add(name, true, (System.nanoTime() - startedAt) / 1_000_000,
+                resultChars = result.content.textCharacterCount())
+            result
+        } catch (e: Exception) {
+            ToolAuditLog.add(name, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
+            structuredToolError(e)
+        }
     }
     addTool(
         name = name,
@@ -172,7 +188,8 @@ inline fun Server.mcpTool(
         val startedAt = System.nanoTime()
         try {
             val result = CallToolResult(content = listOf(TextContent(execute())), isError = false)
-            ToolAuditLog.add(name, true, (System.nanoTime() - startedAt) / 1_000_000)
+            ToolAuditLog.add(name, true, (System.nanoTime() - startedAt) / 1_000_000,
+                resultChars = result.content.textCharacterCount())
             result
         } catch (e: Exception) {
             ToolAuditLog.add(name, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
@@ -190,6 +207,7 @@ inline fun Server.mcpTool(
 
 fun structuredToolError(error: Exception): CallToolResult {
     val code = when (error) {
+        is ToolBusyException -> "BUSY"
         is SerializationException, is IllegalArgumentException -> "INVALID_ARGUMENT"
         is IllegalStateException -> "PRECONDITION_FAILED"
         else -> "TOOL_EXECUTION_FAILED"
@@ -199,7 +217,7 @@ fun structuredToolError(error: Exception): CallToolResult {
         put("ok", false)
         put("code", code)
         put("message", message)
-        put("retryable", false)
+        put("retryable", error is ToolBusyException)
     }
     return CallToolResult(
         content = listOf(TextContent(payload.toString())),
@@ -207,6 +225,9 @@ fun structuredToolError(error: Exception): CallToolResult {
         structuredContent = payload
     )
 }
+
+@PublishedApi
+internal fun List<ContentBlock>.textCharacterCount(): Int = sumOf { (it as? TextContent)?.text?.length ?: 0 }
 
 fun coerceIntegralArguments(arguments: JsonObject, type: KClass<*>): JsonObject {
     val integralNames = type.memberProperties.filter {

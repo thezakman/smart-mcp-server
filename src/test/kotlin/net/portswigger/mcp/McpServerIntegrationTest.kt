@@ -13,6 +13,10 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.net.ServerSocket
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 
 class McpServerIntegrationTest {
     private val client = TestSseMcpClient()
@@ -102,5 +106,39 @@ class McpServerIntegrationTest {
         } catch (e: Exception) {
             fail("Connection failed: ${e.message}")
         }
+    }
+
+    @Test
+    fun `streamable HTTP endpoint accepts direct MCP initialize`() {
+        val http = HttpClient.newHttpClient()
+        val body = """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"direct-test","version":"1.0"}}}"""
+        val request = HttpRequest.newBuilder(URI("http://127.0.0.1:$testPort/mcp"))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream")
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build()
+        val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+
+        assertEquals(200, response.statusCode())
+        assertTrue(response.body().contains("serverInfo"), response.body())
+        assertTrue(response.body().contains("resources"), response.body())
+        val sessionId = response.headers().firstValue("Mcp-Session-Id").orElseThrow()
+
+        fun directPost(json: String): HttpResponse<String> = http.send(
+            HttpRequest.newBuilder(URI("http://127.0.0.1:$testPort/mcp"))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .header("Mcp-Session-Id", sessionId)
+                .header("MCP-Protocol-Version", "2025-03-26")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build(),
+            HttpResponse.BodyHandlers.ofString()
+        )
+
+        val initialized = directPost("""{"jsonrpc":"2.0","method":"notifications/initialized"}""")
+        assertTrue(initialized.statusCode() in setOf(200, 202, 204))
+        val templates = directPost("""{"jsonrpc":"2.0","id":2,"method":"resources/templates/list","params":{}}""")
+        assertEquals(200, templates.statusCode())
+        assertTrue(templates.body().contains("burp://proxy/{id}/{part}"), templates.body())
     }
 }

@@ -12,18 +12,20 @@ Collaborator, editor, Proxy and Organizer tools compatible. The additional traff
 
 ## Client installation
 
-The Codex installation action extracts the packaged proxy and copies a shell-safe command using `java` from the
-terminal `PATH`. It does not run Codex or edit `config.toml` from Burp's GUI process. This keeps `PATH`,
-`CODEX_HOME` and shell behavior under the user's terminal environment.
+The Codex installation action copies a shell-safe `codex mcp add --url` command for the direct Streamable HTTP
+endpoint. It does not run Codex or edit `config.toml` from Burp's GUI process, so `CODEX_HOME` and shell behavior
+remain under the user's terminal environment.
 
-The extension remains an SSE server. Codex and other stdio-only clients run the embedded
-`mcp-proxy-all.jar`, which connects to the configured local SSE endpoint.
+The extension serves Streamable HTTP at `/mcp` and retains the original SSE endpoint. Stdio-only clients run the
+embedded `mcp-proxy-all.jar`, which connects to the configured local SSE endpoint.
 
 ## Evidence model
 
 - Proxy and WebSocket tools retain Montoya's native IDs.
 - Site Map has no native entry ID, so entries use a SHA-256 key derived from request and service content.
 - Compact index tools omit bodies. Detail tools retrieve selected items in bounded Unicode-safe chunks.
+- Structured Proxy search caches extracted metadata for existing native IDs and bounds concurrent heavy searches.
+- Complete Proxy request/response messages are also available through `burp://proxy/{id}/{part}` resources.
 - Proxy pagination returns `snapshotMaxId`; reusing it excludes newer arrivals while a client pages.
 - Request, response, cookie and authentication content remains unchanged by default. Optional masking is an
   explicit argument only on tools that advertise it.
@@ -49,9 +51,10 @@ parameter. There is no automatic payload batch, retry loop or offensive system p
 
 ## Diagnostics and audit
 
-`get_mcp_diagnostics` reports the configured endpoint, server state, Burp/JVM information, embedded-proxy presence
-and capture counts. `get_mcp_action_log` reads a 500-event in-memory ring containing tool name, timestamp,
-duration, success and bounded error text. Arguments and results are never copied into this log.
+`get_mcp_diagnostics` reports both endpoints, server state, tool/profile/schema size, indexed-history reuse,
+per-tool duration/output totals, Burp/JVM information, embedded-proxy presence and capture counts.
+`get_mcp_action_log` reads a 500-event in-memory ring containing tool name, timestamp, duration, success,
+returned character count and bounded error text. Arguments and result bodies are never copied into this log.
 
 ## UI and packaging
 
@@ -69,5 +72,6 @@ Run with a complete Java 21 JDK:
 ./gradlew test embedProxyJar
 ```
 
-The current regression suite contains 109 tests with MCP SSE and packaged stdio-proxy end-to-end coverage.
-The generated JAR passes ZIP integrity checks and contains one embedded proxy matching `libs/mcp-proxy-all.jar`.
+The regression suite covers MCP SSE, direct Streamable HTTP initialization and packaged stdio-proxy end-to-end
+operation. The generated JAR passes ZIP integrity checks and contains one embedded proxy matching
+`libs/mcp-proxy-all.jar`.

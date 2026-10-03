@@ -32,7 +32,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
     mcpTool<ListSiteMap>(
         "Compact Site Map index with a stable content-derived key, method, host, path, status, MIME type and sizes. " +
             "Filters are applied before pagination. No request or response body is returned and no traffic is sent. " +
-            "Use get_site_map_items_by_key for selected full exchanges."
+            "Use get_site_map_items_by_key for selected full exchanges.",
+        behavior = READ_ONLY_TOOL
     ) {
         validatePage(count, offset, 200)
         requireAccess(DataAccessType.HTTP_HISTORY)
@@ -42,7 +43,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool<GetSiteMapItemsByKey>(
         "Fetch selected Site Map request/response pairs using keys returned by list_site_map. " +
-            "Messages are bounded and credentials remain unchanged. No traffic is sent."
+            "Messages are bounded and credentials remain unchanged. No traffic is sent.",
+        behavior = READ_ONLY_TOOL
     ) {
         require(keys.isNotEmpty()) { "Provide at least one Site Map key" }
         require(keys.size <= 20) { "At most 20 Site Map keys may be requested" }
@@ -68,7 +70,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool<ListOrganizerItems>(
         "Compact Organizer index with native item ID, status, annotation, method, endpoint, response status, MIME type " +
-            "and message sizes. No bodies. Use get_organizer_items_by_id for detail."
+            "and message sizes. No bodies. Use get_organizer_items_by_id for detail.",
+        behavior = READ_ONLY_TOOL
     ) {
         validatePage(count, offset, 200)
         requireAccess(DataAccessType.ORGANIZER)
@@ -81,7 +84,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
     }
 
     mcpTool<GetOrganizerItemsById>(
-        "Fetch full Organizer entries by native IDs. Request, response and notes are returned unchanged in bounded chunks."
+        "Fetch full Organizer entries by native IDs. Request, response and notes are returned unchanged in bounded chunks.",
+        behavior = READ_ONLY_TOOL
     ) {
         require(ids.isNotEmpty()) { "Provide at least one Organizer ID" }
         require(ids.size <= 20) { "At most 20 Organizer IDs may be requested" }
@@ -104,7 +108,7 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
         }.toString()
     }
 
-    mcpTool<SetOrganizerItemNotes>("Set notes on one Organizer item by native ID.") {
+    mcpTool<SetOrganizerItemNotes>("Set notes on one Organizer item by native ID.", LOCAL_MUTATION_TOOL) {
         require(notes.length <= 100_000) { "notes must not exceed 100000 characters" }
         requireAccess(DataAccessType.ORGANIZER)
         val item = api.organizer().items().firstOrNull { it.id() == id }
@@ -114,7 +118,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
     }
 
     mcpTool<SetOrganizerItemHighlight>(
-        "Set one Organizer item's highlight: RED, ORANGE, YELLOW, GREEN, CYAN, BLUE, PINK, MAGENTA, GRAY or NONE."
+        "Set one Organizer item's highlight: RED, ORANGE, YELLOW, GREEN, CYAN, BLUE, PINK, MAGENTA, GRAY or NONE.",
+        behavior = LOCAL_MUTATION_TOOL
     ) {
         requireAccess(DataAccessType.ORGANIZER)
         val color = try {
@@ -130,7 +135,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool<SaveExchangeToOrganizer>(
         "Save an already captured Proxy, Repeater or Intruder exchange to Organizer without sending target traffic. " +
-            "source is PROXY or CAPTURED. Optional notes are attached to the saved copy."
+            "source is PROXY or CAPTURED. Optional notes are attached to the saved copy.",
+        behavior = LOCAL_MUTATION_TOOL
     ) {
         requireAccess(DataAccessType.ORGANIZER)
         val pair = resolveExchange(api, source, id, config, requireDataAccess = true)
@@ -148,19 +154,22 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
     }
 
     mcpTool<GetRepeaterTraffic>(
-        "Compact index of Repeater exchanges observed after this extension was loaded. No bodies; no traffic is sent."
+        "Compact index of Repeater exchanges observed after this extension was loaded. No bodies; no traffic is sent.",
+        behavior = READ_ONLY_TOOL
     ) {
         capturedTrafficPage(ToolType.REPEATER, newestFirst, count, offset, config)
     }
 
     mcpTool<GetIntruderTraffic>(
-        "Compact index of Intruder exchanges observed after this extension was loaded. No bodies; no traffic is sent."
+        "Compact index of Intruder exchanges observed after this extension was loaded. No bodies; no traffic is sent.",
+        behavior = READ_ONLY_TOOL
     ) {
         capturedTrafficPage(ToolType.INTRUDER, newestFirst, count, offset, config)
     }
 
     mcpTool<GetCapturedExchangeById>(
-        "Fetch one Repeater or Intruder exchange by captured message ID. Content is unchanged and chunked."
+        "Fetch one Repeater or Intruder exchange by captured message ID. Content is unchanged and chunked.",
+        behavior = READ_ONLY_TOOL
     ) {
         validateMessageWindow(contentOffset, maxMessageChars)
         requireAccess(DataAccessType.HTTP_HISTORY)
@@ -174,7 +183,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool<CompareHttpExchanges>(
         "Compare two already captured Proxy/Repeater/Intruder exchanges without sending traffic. " +
-            "Returns status, sizes, hashes, JSON-key differences and differing response headers."
+            "Returns status, sizes, hashes, JSON-key differences and differing response headers.",
+        behavior = READ_ONLY_TOOL
     ) {
         val left = resolveExchange(api, leftSource, leftId, config, requireDataAccess = true)
         val right = resolveExchange(api, rightSource, rightId, config, requireDataAccess = true)
@@ -183,7 +193,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool<PreviewRequestMutation>(
         "Preview exactly one explicit mutation to a captured Proxy request without sending it. " +
-            "location: METHOD, PATH, HEADER, BODY, QUERY_PARAMETER, BODY_PARAMETER, COOKIE or JSON_PARAMETER."
+            "location: METHOD, PATH, HEADER, BODY, QUERY_PARAMETER, BODY_PARAMETER, COOKIE or JSON_PARAMETER.",
+        behavior = READ_ONLY_TOOL
     ) {
         validateMessageWindow(0, maxMessageChars)
         requireAccess(DataAccessType.HTTP_HISTORY)
@@ -195,7 +206,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
     mcpTool<SendMutatedRequest>(
         "Send exactly one explicit mutation of a captured Proxy request. Always preview first. " +
             "Pass the preview's mutatedSha256 as expectedRequestSha256. This tool performs one request only, " +
-            "with no batching or retries, and uses Burp's per-target approval."
+            "with no batching or retries, and uses Burp's per-target approval.",
+        behavior = EXTERNAL_REQUEST_TOOL
     ) {
         validateMessageWindow(0, maxMessageChars)
         requireAccess(DataAccessType.HTTP_HISTORY)
@@ -226,7 +238,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool(
         "get_mcp_diagnostics",
-        "Report Burp, JVM, MCP endpoint, embedded proxy, capture-buffer and last server-state diagnostics."
+        "Report Burp, JVM, MCP endpoint, embedded proxy, capture-buffer and last server-state diagnostics.",
+        READ_ONLY_TOOL
     ) {
         buildJsonObject {
             put("server", RuntimeDiagnostics.snapshot(config))
@@ -242,7 +255,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool<GetMcpActionLog>(
         "Read the bounded local MCP action audit log. It records tool name, timestamp, duration and error only; " +
-            "request arguments and response bodies are never copied into the log."
+            "request arguments and response bodies are never copied into the log.",
+        behavior = READ_ONLY_TOOL
     ) {
         validatePage(count, offset, 200)
         jsonPage(ToolAuditLog.snapshot(newestFirst), count, offset) { Json.encodeToJsonElement(it) }

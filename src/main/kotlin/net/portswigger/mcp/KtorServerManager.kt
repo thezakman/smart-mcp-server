@@ -8,14 +8,20 @@ import io.ktor.server.netty.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
+import io.ktor.server.routing.routing
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.mcp
+import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.tools.SERVER_INSTRUCTIONS
 import net.portswigger.mcp.tools.TrafficStore
+import net.portswigger.mcp.tools.HistoryMetadataIndex
+import net.portswigger.mcp.tools.registerHistoryResources
 import net.portswigger.mcp.tools.registerTools
 import java.net.URI
 import java.util.concurrent.ExecutorService
@@ -41,9 +47,17 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                         KtorServerManager::class.java.`package`.implementationVersion ?: "development"
                     ), options = ServerOptions(
                         capabilities = ServerCapabilities(
-                            tools = ServerCapabilities.Tools(listChanged = false)
+                            tools = ServerCapabilities.Tools(listChanged = false),
+                            resources = ServerCapabilities.Resources(listChanged = false, subscribe = false)
                         )
                     ), instructions = SERVER_INSTRUCTIONS
+                )
+
+                mcpServer.registerTools(api, config)
+                mcpServer.registerHistoryResources(api, config)
+                RuntimeDiagnostics.updateCatalog(
+                    count = mcpServer.tools.size,
+                    schemaChars = mcpServer.tools.values.sumOf { Json.encodeToString(it.tool).length }
                 )
 
                 server = embeddedServer(Netty, port = config.port, host = config.host) {
@@ -53,10 +67,13 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
 
                         allowMethod(HttpMethod.Get)
                         allowMethod(HttpMethod.Post)
+                        allowMethod(HttpMethod.Delete)
 
                         allowHeader(HttpHeaders.ContentType)
                         allowHeader(HttpHeaders.Accept)
                         allowHeader("Last-Event-ID")
+                        allowHeader("Mcp-Session-Id")
+                        allowHeader("MCP-Protocol-Version")
 
                         allowCredentials = false
                         allowNonSimpleContentTypes = true
@@ -97,11 +114,19 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                         call.response.header("Content-Security-Policy", "default-src 'none'")
                     }
 
-                    mcp {
+                    mcpStreamableHttp(
+                        path = "/mcp",
+                        enableDnsRebindingProtection = true,
+                        allowedHosts = listOf("localhost:${config.port}", "127.0.0.1:${config.port}"),
+                        allowedOrigins = listOf("http://localhost:${config.port}", "http://127.0.0.1:${config.port}")
+                    ) {
                         mcpServer
                     }
-
-                    mcpServer.registerTools(api, config)
+                    routing {
+                        mcp {
+                            mcpServer
+                        }
+                    }
                 }
                 // Retain the engine before starting so a partial startup can be cleaned up on failure.
                 server!!.start(wait = false)
@@ -118,6 +143,7 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                     e.addSuppressed(cleanupError)
                 }
                 TrafficStore.shutdown()
+                HistoryMetadataIndex.clear()
                 api.logging().logToError(e)
                 publish(ServerState.Failed(e), callback)
             }
@@ -132,6 +158,7 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                 server?.stop(1000, 5000)
                 server = null
                 TrafficStore.shutdown()
+                HistoryMetadataIndex.clear()
                 api.logging().logToOutput("Stopped MCP server")
                 publish(ServerState.Stopped, callback)
             } catch (e: Exception) {
@@ -145,6 +172,7 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
         server?.stop(1000, 5000)
         server = null
         TrafficStore.shutdown()
+        HistoryMetadataIndex.clear()
 
         executor.shutdown()
         executor.awaitTermination(10, TimeUnit.SECONDS)

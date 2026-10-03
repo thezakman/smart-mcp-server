@@ -102,7 +102,8 @@ internal fun Server.registerFilteredHistoryTools(
     mcpTool<CreateRepeaterTabFromHistory>(
         "Open a captured request in Burp Repeater by its native Proxy history # ID. " +
             "The original Montoya request is reused, preserving its service and HTTP protocol. " +
-            "This creates a local Repeater tab and does not send the request."
+            "This creates a local Repeater tab and does not send the request.",
+        behavior = LOCAL_MUTATION_TOOL
     ) {
         require(index >= 0) { "index must be a non-negative native Burp ID" }
         requireAccess(DataAccessType.HTTP_HISTORY)
@@ -116,7 +117,8 @@ internal fun Server.registerFilteredHistoryTools(
     mcpTool<SendHistoryItemToIntruder>(
         "Open a captured request in Burp Intruder by its native Proxy history # ID. " +
             "The original Montoya request is reused, preserving its service and HTTP protocol. " +
-            "This creates a local Intruder tab and does not start an attack."
+            "This creates a local Intruder tab and does not start an attack.",
+        behavior = LOCAL_MUTATION_TOOL
     ) {
         require(index >= 0) { "index must be a non-negative native Burp ID" }
         requireAccess(DataAccessType.HTTP_HISTORY)
@@ -131,7 +133,8 @@ internal fun Server.registerFilteredHistoryTools(
         "Replay one captured request by its native Burp # ID without changing it. Uses the original Montoya " +
             "request, preserving service and HTTP protocol, and passes through Burp MCP's existing per-target " +
             "request approval. No payload injection, batching or automatic retries. Returns a bounded response " +
-            "with credentials intact by default; redactSecrets=true is explicit opt-in."
+            "with credentials intact by default; redactSecrets=true is explicit opt-in.",
+        behavior = EXTERNAL_REQUEST_TOOL
     ) {
         require(index >= 0) { "index must be a non-negative native Burp ID" }
         validateMessageWindow(0, maxMessageChars)

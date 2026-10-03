@@ -21,7 +21,7 @@ fork point; the upstream project may continue to evolve independently.
 
 | Area | PortSwigger original at the fork point | Smart Burp MCP Server |
 | --- | --- | --- |
-| Client setup | Claude Desktop installer and manual stdio proxy extraction | Keeps both and adds shell-safe **Claude CLI** and **Codex CLI** setup commands using `java` from the terminal `PATH` |
+| Client setup | Claude Desktop installer and manual stdio proxy extraction | Keeps both, adds shell-safe **Claude CLI**, and connects **Codex CLI directly over Streamable HTTP** without launching the proxy |
 | Proxy history | Full request/response pagination and basic regex search | Adds compact summaries, native Burp IDs, highlight colors, timing, MIME/size metadata, scope/static filters, bounded regex work and snapshot-aware pagination |
 | Message detail | Bulk entries with a fixed output limit | Fetches selected HTTP and WebSocket messages by native ID with Unicode-safe chunks and explicit continuation offsets |
 | Sensitive traffic | Captured messages returned by the original bulk tools | Keeps raw cookies, tokens and credentials intact by default; optional masking is explicit and tool-specific |
@@ -33,7 +33,8 @@ fork point; the upstream project may continue to evolve independently.
 | MCP guidance | Tool descriptions only | Adds server initialize instructions that direct clients to compact index → selected detail workflows |
 | Tool catalog cost | Exposes the complete tool set to every client | Adds a compact **Core** profile by default and a **Full compatibility** profile for legacy and overlapping tools |
 | Tool contracts | Basic parameter types | Adds field descriptions, enums, bounds, examples, MCP behavior annotations, numeric compatibility and structured errors |
-| Diagnostics | Server startup state and generic errors | Adds nested startup diagnostics, runtime/JVM/proxy status, capture counts and a metadata-only tool action log |
+| Diagnostics | Server startup state and generic errors | Adds nested startup diagnostics, runtime/JVM/proxy status, catalog/schema size, per-tool timing/output metrics, history-index metrics and a metadata-only action log |
+| MCP transport | Local SSE endpoint consumed through the packaged stdio proxy | Keeps SSE/stdio compatibility and adds a native Streamable HTTP endpoint at `/mcp` |
 | Packaging | Embeds the proxy by updating the completed archive with an external `jar` command | Declares the proxy as a Gradle archive input and always emits `build/libs/burp-mcp-all.jar` |
 | UI | Uses the Swing/Burp list colors directly | Keeps Burp theming and derives restrained alternating rows that remain readable in dark and light modes |
 | Regression coverage | Original unit and MCP integration tests | Retains the original suite and adds Claude CLI, Codex, triage, filtering, handoff, diagnostics and mutation regressions |
@@ -43,7 +44,8 @@ fork point; the upstream project may continue to evolve independently.
 - Original HTTP/1.1, HTTP/2, Repeater, Intruder, configuration, editor and utility tools remain available in the
   **Full compatibility** profile.
 - Scanner and Collaborator tools remain conditional on Burp Suite Professional.
-- The default local endpoint remains `127.0.0.1:9876` and the embedded proxy still bridges stdio clients to SSE.
+- The default local endpoint remains `127.0.0.1:9876`; the embedded proxy still bridges stdio clients to SSE and
+  Streamable HTTP clients can connect directly to `http://127.0.0.1:9876/mcp`.
 - Existing bulk Proxy and Organizer tools remain for clients that already depend on them. Their compact replacements
   are preferred for new workflows because they avoid loading unrelated bodies into the MCP context.
 - The original project-data and per-target approval controls remain in force.
@@ -56,7 +58,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 
 ## Features
 
-- Native Codex CLI setup command using `java` from the terminal `PATH`
+- Native Codex CLI setup command using direct Streamable HTTP
 - Native Claude CLI setup command stored at user scope
 - Claude Desktop installer and embedded stdio-to-SSE proxy
 - Compact Proxy, Site Map, Organizer, Repeater and Intruder indexes
@@ -70,12 +72,15 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Theme-aware Burp UI, including restrained alternating rows in dark and light themes
 - Core and Full compatibility tool profiles to control MCP catalog size
 - Structured Proxy-history search with stable cursors, field projection and a total response budget
+- Incremental history metadata index and bounded concurrent searches for large Burp projects
+- Full raw HTTP messages exposed as on-demand MCP resources (`burp://proxy/{id}/{part}`)
+- Per-tool duration/output metrics and live catalog/schema size diagnostics
 
 ## Usage
 
 - Install the extension in Burp Suite
 - Configure your Burp MCP server in the extension settings
-- Configure your MCP client to use the Burp SSE MCP server or stdio proxy
+- Configure your MCP client to use direct Streamable HTTP, the Burp SSE endpoint or the stdio proxy
 - Interact with Burp through your client!
 
 ## Installation
@@ -131,13 +136,12 @@ Configuration for the extension is done through the Burp Suite UI in the `MCP` t
 
 ### Codex CLI Client
 
-Codex uses the packaged stdio proxy to connect to the SSE server running inside Burp. The extension prepares the
-proxy and produces the exact `codex mcp add` command for the host, port and operating system currently in use.
+Codex connects directly to the Streamable HTTP endpoint running inside Burp. The extension produces the exact
+`codex mcp add --url` command for the configured host and port; no proxy process or Java command is needed.
 
 1. **Check the prerequisites**
 
-   Run `codex --version` and `java --version` in the terminal where you use Codex. Java 21 or newer must be
-   available through `PATH`.
+   Run `codex --version` in the terminal where you use Codex.
 
 2. **Configure Codex to use Burp MCP**
 
@@ -150,10 +154,10 @@ proxy and produces the exact `codex mcp add` command for the host, port and oper
 
    - **Option 2: Configure it manually**
 
-     Click **Extract server proxy jar**, then run:
+     Run:
 
      ```sh
-     codex mcp add burp -- java -jar "/absolute/path/to/mcp-proxy-all.jar" --sse-url http://127.0.0.1:9876
+     codex mcp add burp --url http://127.0.0.1:9876/mcp
      codex mcp get burp
      codex mcp list
      ```
@@ -162,20 +166,19 @@ proxy and produces the exact `codex mcp add` command for the host, port and oper
 
      ```toml
      [mcp_servers.burp]
-     command = "java"
-     args = ["-jar", "/absolute/path/to/mcp-proxy-all.jar", "--sse-url", "http://127.0.0.1:9876"]
+     url = "http://127.0.0.1:9876/mcp"
      ```
 
-     Keep `command = "java"` so Codex uses Java from the terminal `PATH`. If you change the host or port in Burp,
-     copy and run the generated command again.
+     If you change the host or port in Burp, copy and run the generated command again.
 
 3. **Restart the Codex session**
 
    Keep Burp open with the MCP server enabled, start a new Codex session, then use `/mcp` to confirm that `burp`
    is connected and exposing tools.
 
-The extension serves **SSE**. Codex's `--url` option expects **Streamable HTTP**, so this integration must use the
-packaged stdio proxy. See the [official Codex MCP documentation](https://developers.openai.com/codex/mcp/).
+The previous stdio configuration remains compatible: extract the proxy and use `command = "java"` with
+`--sse-url http://127.0.0.1:9876` if an older client requires stdio. See the
+[official Codex MCP documentation](https://developers.openai.com/codex/mcp/).
 
 ### Claude CLI Client
 
@@ -242,13 +245,15 @@ References: [manual setup PR #83](https://github.com/PortSwigger/mcp-server/pull
 
 ```mermaid
 flowchart LR
-    Client[Codex CLI / Claude CLI / Claude Desktop] -->|stdio| Proxy[Embedded MCP proxy]
+    Codex[Codex CLI] -->|Streamable HTTP /mcp| Extension[Burp MCP extension]
+    Claude[Claude CLI / Claude Desktop] -->|stdio| Proxy[Embedded MCP proxy]
     Proxy -->|SSE on 127.0.0.1:9876| Extension[Burp MCP extension]
     Extension --> Burp[Montoya API]
 ```
 
-The extension serves MCP over SSE. Clients that only support stdio launch the packaged proxy JAR, which
-connects to the local SSE endpoint. Target requests still pass through Burp's configured request-approval flow.
+The extension serves both Streamable HTTP and SSE. Codex connects directly to `/mcp`; clients that only support
+stdio launch the packaged proxy JAR, which connects to the local SSE endpoint. Target requests still pass through
+Burp's configured request-approval flow.
 
 ## MCP tool catalog
 
@@ -293,7 +298,7 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 | Tool | Purpose | Defaults |
 | --- | --- | --- |
 | `search_http_history` | Structured Proxy search with host/path/method/status/MIME/color/scope filters, projected fields and stable cursors | 20 compact items; 20,000 total characters |
-| `get_http_exchange` | Retrieve only selected summary/request/response/notes parts by native Burp ID | Raw content; 30,000 total characters |
+| `get_http_exchange` | Retrieve selected summary/request/response/notes parts and on-demand resource URIs by native Burp ID | Raw content; 30,000 total characters |
 | `get_proxy_http_history_summary` | Native ID, color, method, endpoint without query values, status, parameter names and response-start timing | Highlighted traffic; static assets omitted; 20 items |
 | `get_requests_by_color` | Request, response and notes for selected colors | 5 items; 5,000 characters per message; credentials intact; compaction enabled |
 | `get_request_by_index` | Retrieve an exchange by the native Burp `#` ID, including uncolored or static items | 10,000 characters per message; original content |
@@ -313,8 +318,8 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 | `compare_http_exchanges` | Compare two captured responses | No target traffic |
 | `preview_request_mutation` | Render one explicit request mutation for review | No target traffic |
 | `send_mutated_request` | Send the exact reviewed mutation once | Preview hash and target approval required |
-| `get_mcp_diagnostics` | Show endpoint, runtime, embedded proxy and buffer status | No target traffic |
-| `get_mcp_action_log` | Show bounded local tool audit events | Never stores arguments or bodies |
+| `get_mcp_diagnostics` | Show endpoints, runtime, catalog/schema cost, history index, per-tool output/timing, proxy and buffer status | No target traffic |
+| `get_mcp_action_log` | Show bounded local tool audit events and returned character counts | Never stores arguments or bodies |
 
 The summary/color/regex variants and legacy bulk tools remain available in **Full compatibility**:
 `get_proxy_http_history_summary`, `get_requests_by_color`, `get_request_by_index`, `get_proxy_http_history_regex`,
@@ -332,6 +337,9 @@ Use the returned `nextCursor` for a stable next page. For selected raw evidence:
 ```json
 {"id":105,"parts":["SUMMARY","REQUEST","RESPONSE"],"fields":["id","method","host","path","statusCode"],"contentOffset":0,"maxMessageChars":10000,"maxOutputChars":24000}
 ```
+
+The result also advertises `burp://proxy/105/request` and `burp://proxy/105/response`. MCP clients that support
+resources can read either complete raw message on demand without placing the full exchange in every tool result.
 
 Build a filtered Site Map index and fetch selected evidence:
 
@@ -400,9 +408,12 @@ rewriting. `build`, `shadowJar` and the compatible `embedProxyJar` entry point a
 - Read-only tools do not generate target traffic. Creating a Repeater or Intruder tab also does not send it.
 - Captured authentication material is returned unchanged by default. `redactSecrets=true` is available only on
   tools that explicitly expose that option.
-- The action log stores tool name, timestamp, duration and error text. It does not store arguments or results.
+- The action log stores tool name, timestamp, duration, returned character count and error text. It does not store
+  arguments or result bodies.
 - Repeater and Intruder buffers are memory-only, hold at most 1,000 exchanges per tool and are cleared when the
   MCP server or extension stops.
+- Structured history searches reuse an incremental metadata index and allow at most two simultaneous heavy searches;
+  additional calls receive a structured retryable `BUSY` error instead of consuming an unbounded worker queue.
 
 ### Current limitations
 
@@ -417,7 +428,8 @@ rewriting. `build`, `shadowJar` and the compatible `embedProxyJar` entry point a
 
 Run `./gradlew test embedProxyJar` with Java 21 available. The new regression checks cover native IDs,
 filtering, bounded regex work, pagination, valid JSON, Unicode chunking, optional redaction, WebSocket
-scope filtering, native Repeater/Intruder handoff, missing responses, timings, defaults and access denial.
+scope filtering, native Repeater/Intruder handoff, missing responses, timings, defaults, access denial and direct
+Streamable HTTP initialization.
 To check the installed Codex CLI's configuration behavior independently, run
 `python3 scripts/check-codex-cli.py` (Python 3.11+). It uses a temporary Codex configuration and does not
 change your real configuration or start the configured server.
@@ -428,6 +440,14 @@ Implementation and current validation limits are recorded in [implementation not
 To use the SSE server directly, provide the configured server URL to your MCP client:
 ```
 http://127.0.0.1:9876
+```
+
+### Streamable HTTP MCP Server
+
+For clients with native Streamable HTTP support, use:
+
+```
+http://127.0.0.1:9876/mcp
 ```
 
 ### Stdio MCP Proxy Server

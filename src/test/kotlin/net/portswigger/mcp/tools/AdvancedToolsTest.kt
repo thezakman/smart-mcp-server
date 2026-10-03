@@ -56,6 +56,21 @@ class AdvancedToolsTest {
     }
 
     @Test
+    fun `tool metrics aggregate output cost and failures`() {
+        ToolAuditLog.add("search_http_history", true, 10, resultChars = 120)
+        ToolAuditLog.add("search_http_history", false, 5, error = "busy")
+        ToolAuditLog.add("get_http_exchange", true, 20, resultChars = 900)
+
+        val search = ToolAuditLog.metrics().first { it.tool == "search_http_history" }
+        assertEquals(2, search.calls)
+        assertEquals(1, search.successes)
+        assertEquals(1, search.failures)
+        assertEquals(15, search.totalDurationMillis)
+        assertEquals(120, search.totalResultChars)
+        assertEquals(120, search.maxResultChars)
+    }
+
+    @Test
     fun `server instructions require preview and forbid implicit batches`() {
         assertTrue(SERVER_INSTRUCTIONS.contains("Preview mutations before sending"))
         assertTrue(SERVER_INSTRUCTIONS.contains("Do not turn a single mutation into a batch"))

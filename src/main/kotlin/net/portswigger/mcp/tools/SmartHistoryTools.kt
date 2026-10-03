@@ -44,69 +44,62 @@ internal fun Server.registerSmartHistoryTools(api: MontoyaApi, config: McpConfig
             "with a stable cursor and a total output budget. Use get_http_exchange to fetch selected raw content.",
         behavior = READ_ONLY_TOOL
     ) {
-        validateHistoryPage(count, offset, 100)
-        require(maxOutputChars in 1000..200000) { "maxOutputChars must be between 1000 and 200000" }
-        require(cursor == null || offset == 0) { "offset must be 0 when cursor is provided" }
-        require(fields.isNotEmpty()) { "fields must contain at least one field" }
-        val unknownFields = fields.filterNot(HISTORY_FIELDS::contains)
-        require(unknownFields.isEmpty()) { "Unknown fields: ${unknownFields.joinToString()}. Valid fields: ${HISTORY_FIELDS.sorted().joinToString()}" }
+        withHistorySearchPermit {
+            validateHistoryPage(count, offset, 100)
+            require(maxOutputChars in 1000..200000) { "maxOutputChars must be between 1000 and 200000" }
+            require(cursor == null || offset == 0) { "offset must be 0 when cursor is provided" }
+            require(fields.isNotEmpty()) { "fields must contain at least one field" }
+            val unknownFields = fields.filterNot(HISTORY_FIELDS::contains)
+            require(unknownFields.isEmpty()) { "Unknown fields: ${unknownFields.joinToString()}. Valid fields: ${HISTORY_FIELDS.sorted().joinToString()}" }
 
-        val pageCursor = cursor?.let(::decodeHistoryCursor)
-        val requestedOffset = pageCursor?.offset ?: offset
-        val selectedColors = parseHistoryColors(colors)
-        val matcher = regex?.takeIf(String::isNotBlank)?.let(::HistoryRegex)
-        val normalizedMethods = methods.map { it.uppercase(Locale.ROOT) }.toSet()
-        val normalizedMimeTypes = mimeTypes.map { it.uppercase(Locale.ROOT) }.toSet()
-        requireAccess()
+            val pageCursor = cursor?.let(::decodeHistoryCursor)
+            val requestedOffset = pageCursor?.offset ?: offset
+            val selectedColors = parseHistoryColors(colors)
+            val matcher = regex?.takeIf(String::isNotBlank)?.let(::HistoryRegex)
+            val normalizedMethods = methods.map { it.uppercase(Locale.ROOT) }.toSet()
+            val normalizedMimeTypes = mimeTypes.map { it.uppercase(Locale.ROOT) }.toSet()
+            requireAccess()
 
-        var sequence = api.proxy().history().asSequence().filter { item ->
-            val request = item.finalRequest()
-            val url = safeSmart { request.url() }.orEmpty()
-            val color = item.annotations().highlightColor() ?: HighlightColor.NONE
-            val host = safeSmart { request.httpService().host() }.orEmpty()
-            val path = historyPath(url)
-            val response = item.response()
-            val status = safeSmart { response?.statusCode()?.toInt() }
-            val mime = safeSmart { response?.mimeType()?.name?.uppercase(Locale.ROOT) }
-            val hasParams = safeSmart { request.parameters().isNotEmpty() } ?: false
-
-            (selectedColors.isEmpty() || color in selectedColors) &&
-                (!highlightedOnly || color != HighlightColor.NONE) &&
-                (includeStatic || !isStaticHistoryUrl(url)) &&
-                (hostContains.isNullOrBlank() || host.contains(hostContains, ignoreCase = true)) &&
-                (pathPrefix.isNullOrBlank() || path.startsWith(pathPrefix)) &&
-                (normalizedMethods.isEmpty() || request.method().uppercase(Locale.ROOT) in normalizedMethods) &&
-                (statusCodes.isEmpty() || status in statusCodes) &&
-                (normalizedMimeTypes.isEmpty() || mime in normalizedMimeTypes) &&
-                (hasResponse == null || (response != null) == hasResponse) &&
-                (hasParameters == null || hasParams == hasParameters)
-        }
-
-        if (inScopeOnly) sequence = sequence.filter { api.scope().isInScope(it.finalRequest().url()) }
-        val structured = sequence.toList()
-        val snapshotMaxId = pageCursor?.snapshotMaxId ?: structured.maxOfOrNull { it.id() }
-        var snapshot = structured.filter { snapshotMaxId == null || it.id() <= snapshotMaxId }
-        if (matcher != null) snapshot = filterHttpHistory(api, snapshot, false, matcher)
-        snapshot = when (sort.uppercase(Locale.ROOT)) {
-            "NEWEST" -> snapshot.sortedByDescending { it.id() }
-            "OLDEST" -> snapshot.sortedBy { it.id() }
-            "SLOWEST" -> snapshot.sortedByDescending {
-                it.timingData()?.timeBetweenRequestSentAndStartOfResponse()?.toMillis() ?: -1
+            var sequence = HistoryMetadataIndex.refresh(api.proxy().history()).asSequence().filter { entry ->
+                (selectedColors.isEmpty() || entry.color in selectedColors) &&
+                    (!highlightedOnly || entry.color != HighlightColor.NONE) &&
+                    (includeStatic || !isStaticHistoryUrl(entry.url)) &&
+                    (hostContains.isNullOrBlank() || entry.host.contains(hostContains, ignoreCase = true)) &&
+                    (pathPrefix.isNullOrBlank() || entry.path.startsWith(pathPrefix)) &&
+                    (normalizedMethods.isEmpty() || entry.method in normalizedMethods) &&
+                    (statusCodes.isEmpty() || entry.statusCode in statusCodes) &&
+                    (normalizedMimeTypes.isEmpty() || entry.mimeType in normalizedMimeTypes) &&
+                    (hasResponse == null || entry.hasResponse == hasResponse) &&
+                    (hasParameters == null || entry.hasParameters == hasParameters)
             }
-            "LARGEST_RESPONSE" -> snapshot.sortedByDescending { it.response()?.toByteArray()?.length() ?: -1 }
-            else -> throw IllegalArgumentException("sort must be NEWEST, OLDEST, SLOWEST or LARGEST_RESPONSE")
-        }
 
-        val candidates = snapshot.asSequence().drop(requestedOffset).take(count).map { item ->
-            projectHistorySummary(smartHistorySummary(item), fields.toSet(), omitNulls)
-        }.toList()
-        buildBudgetedSearchPage(
-            total = snapshot.size,
-            offset = requestedOffset,
-            snapshotMaxId = snapshotMaxId,
-            candidates = candidates,
-            maxOutputChars = maxOutputChars
-        ).toString()
+            if (inScopeOnly) sequence = sequence.filter { api.scope().isInScope(it.url) }
+            val structured = sequence.toList()
+            val snapshotMaxId = pageCursor?.snapshotMaxId ?: structured.maxOfOrNull { it.id }
+            var snapshot = structured.filter { snapshotMaxId == null || it.id <= snapshotMaxId }
+            if (matcher != null) {
+                val matchingIds = filterHttpHistory(api, snapshot.map { it.item }, false, matcher).map { it.id() }.toSet()
+                snapshot = snapshot.filter { it.id in matchingIds }
+            }
+            snapshot = when (sort.uppercase(Locale.ROOT)) {
+                "NEWEST" -> snapshot.sortedByDescending { it.id }
+                "OLDEST" -> snapshot.sortedBy { it.id }
+                "SLOWEST" -> snapshot.sortedByDescending { it.responseStartMillis ?: -1 }
+                "LARGEST_RESPONSE" -> snapshot.sortedByDescending { it.responseBytes }
+                else -> throw IllegalArgumentException("sort must be NEWEST, OLDEST, SLOWEST or LARGEST_RESPONSE")
+            }
+
+            val candidates = snapshot.asSequence().drop(requestedOffset).take(count).map { entry ->
+                projectHistorySummary(smartHistorySummary(entry.item), fields.toSet(), omitNulls)
+            }.toList()
+            buildBudgetedSearchPage(
+                total = snapshot.size,
+                offset = requestedOffset,
+                snapshotMaxId = snapshotMaxId,
+                candidates = candidates,
+                maxOutputChars = maxOutputChars
+            ).toString()
+        }
     }
 
     mcpTool<GetHttpExchange>(
@@ -232,14 +225,8 @@ private fun smartHistorySummary(item: ProxyHttpRequestResponse): JsonObject {
     val url = safeSmart { request.url() }.orEmpty()
     return JsonObject(historySummary(item).toMutableMap().apply {
         put("host", JsonPrimitive(safeSmart { request.httpService().host() }.orEmpty()))
-        put("path", JsonPrimitive(historyPath(url)))
+        put("path", JsonPrimitive(indexedHistoryPath(url)))
     })
-}
-
-private fun historyPath(url: String): String = try {
-    URI(url).rawPath?.ifBlank { "/" } ?: "/"
-} catch (_: Exception) {
-    "/" + url.substringAfter("://", url).substringAfter('/', "").substringBefore('?').substringBefore('#')
 }
 
 internal fun projectHistorySummary(summary: JsonObject, fields: Set<String>, omitNulls: Boolean): JsonObject =
@@ -304,7 +291,11 @@ private fun buildBudgetedExchange(
 ): JsonObject {
     val values = linkedMapOf<String, JsonElement>(
         "source" to JsonPrimitive("PROXY"),
-        "id" to JsonPrimitive(item.id())
+        "id" to JsonPrimitive(item.id()),
+        "resourceUris" to buildJsonObject {
+            put("request", "burp://proxy/${item.id()}/request")
+            if (item.response() != null) put("response", "burp://proxy/${item.id()}/response")
+        }
     )
     if ("SUMMARY" in parts) {
         values["summary"] = projectHistorySummary(smartHistorySummary(item), fields, omitNulls)

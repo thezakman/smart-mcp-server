@@ -265,7 +265,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         mcpTool<GenerateCollaboratorPayload>(
             "Generates a Burp Collaborator payload URL for out-of-band (OOB) testing. " +
             "Inject this payload into requests to detect server-side interactions (DNS lookups, HTTP requests, SMTP). " +
-            "Use get_collaborator_interactions with the returned payloadId to check for interactions."
+            "Use get_collaborator_interactions with the returned payloadId to check for interactions.",
+            behavior = OPEN_WORLD_MUTATION_TOOL
         ) {
             api.logging().logToOutput("MCP generating Collaborator payload${customData?.let { " with custom data" } ?: ""}")
 
@@ -282,7 +283,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         mcpTool<GetCollaboratorInteractions>(
             "Polls Burp Collaborator for out-of-band interactions (DNS, HTTP, SMTP). " +
             "Optionally filter by payloadId from generate_collaborator_payload. " +
-            "Returns interaction details including type, timestamp, client IP, and protocol-specific data."
+            "Returns interaction details including type, timestamp, client IP, and protocol-specific data.",
+            behavior = OPEN_WORLD_READ_TOOL
         ) {
             api.logging().logToOutput("MCP polling Collaborator interactions${payloadId?.let { " for payload: $it" } ?: ""}")
 

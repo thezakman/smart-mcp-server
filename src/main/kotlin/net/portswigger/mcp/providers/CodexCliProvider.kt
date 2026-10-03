@@ -10,7 +10,6 @@ import java.nio.file.Path
 /** Prepare a terminal command; the user runs it in their own shell environment. */
 class CodexCliProvider(
     private val logging: Logging,
-    private val proxyJarManager: ProxyJarManager,
     private val copyToClipboard: (String) -> Unit = { command ->
         Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(command), null)
     }
@@ -21,8 +20,7 @@ class CodexCliProvider(
 
     override fun install(config: McpConfig): String {
         val windows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
-        val proxy = proxyJarManager.getProxyJar()
-        val command = codexInstallCommand(Path.of("codex"), proxy, config.host, config.port)
+        val command = codexInstallCommand(Path.of("codex"), config.host, config.port)
         copyToClipboard(terminalCommand(command, windows))
         logging.logToOutput("Copied Codex CLI setup command to clipboard")
         val terminal = if (windows) "PowerShell" else "your terminal (zsh/bash)"
@@ -31,7 +29,7 @@ class CodexCliProvider(
     }
 }
 
-internal fun codexInstallCommand(codex: Path, proxy: Path, host: String, port: Int): List<String> {
+internal fun codexInstallCommand(codex: Path, host: String, port: Int): List<String> {
     require(port in 1..65535) { "Invalid MCP server port" }
     // A wildcard is a bind address, not an address a client should connect to.
     val clientHost = when (host) {
@@ -39,9 +37,8 @@ internal fun codexInstallCommand(codex: Path, proxy: Path, host: String, port: I
         "::", "[::]" -> "::1"
         else -> host
     }
-    val url = URI("http", null, clientHost, port, null, null, null).toASCIIString()
-    return listOf(codex.toString(), "mcp", "add", "burp", "--", "java",
-        "-jar", proxy.toString(), "--sse-url", url)
+    val url = URI("http", null, clientHost, port, "/mcp", null, null).toASCIIString()
+    return listOf(codex.toString(), "mcp", "add", "burp", "--url", url)
 }
 
 /** Quote each argument for POSIX shells or PowerShell, without a trailing newline. */

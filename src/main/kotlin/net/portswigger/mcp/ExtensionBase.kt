@@ -26,7 +26,7 @@ class ExtensionBase : BurpExtension {
         val configUi = ConfigUi(
             config = config, providers = listOf(
                 ClaudeCliProvider(api.logging(), proxyJarManager),
-                CodexCliProvider(api.logging(), proxyJarManager),
+                CodexCliProvider(api.logging()),
                 ClaudeDesktopProvider(api.logging(), proxyJarManager),
                 ManualProxyInstallerProvider(api.logging(), proxyJarManager),
             )

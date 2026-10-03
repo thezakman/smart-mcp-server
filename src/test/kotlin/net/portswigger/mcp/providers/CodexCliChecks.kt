@@ -14,18 +14,16 @@ object CodexCliChecks {
             count++
             println("PASS $name")
         }
-        scenario("Codex command uses java from PATH and preserves proxy paths") {
-            val command = codexInstallCommand(Path.of("codex"),
-                Path.of("/a path/proxy;literal.jar"), "127.0.0.1", 9876)
-            check(command == listOf("codex", "mcp", "add", "burp", "--", "java",
-                "-jar", "/a path/proxy;literal.jar", "--sse-url", "http://127.0.0.1:9876"))
+        scenario("Codex command uses direct Streamable HTTP transport") {
+            val command = codexInstallCommand(Path.of("codex"), "127.0.0.1", 9876)
+            check(command == listOf("codex", "mcp", "add", "burp", "--url", "http://127.0.0.1:9876/mcp"))
         }
         scenario("IPv6 URLs and wildcard addresses become valid client endpoints") {
-            fun url(host: String) = codexInstallCommand(Path.of("codex"), Path.of("proxy.jar"), host, 9876).last()
-            check(url("::1") == "http://[::1]:9876")
-            check(url("0.0.0.0") == "http://127.0.0.1:9876")
-            check(url("::") == "http://[::1]:9876")
-            check(runCatching { codexInstallCommand(Path.of("codex"), Path.of("p"), "localhost", 0) }.isFailure)
+            fun url(host: String) = codexInstallCommand(Path.of("codex"), host, 9876).last()
+            check(url("::1") == "http://[::1]:9876/mcp")
+            check(url("0.0.0.0") == "http://127.0.0.1:9876/mcp")
+            check(url("::") == "http://[::1]:9876/mcp")
+            check(runCatching { codexInstallCommand(Path.of("codex"), "localhost", 0) }.isFailure)
         }
         scenario("terminal command has no trailing newline or unnecessary quoting") {
             check(terminalCommand(listOf("codex", "mcp", "add", "burp")) == "codex mcp add burp")
