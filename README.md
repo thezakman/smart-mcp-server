@@ -31,6 +31,8 @@ fork point; the upstream project may continue to evolve independently.
 | Response analysis | Caller compares raw results manually | Adds read-only comparison of status, sizes, hashes, response headers and JSON key paths |
 | Request changes | Caller constructs and sends a complete request | Adds previewed single-request mutation for method, path, header, body and common parameter types; send requires the preview SHA-256 and target approval |
 | MCP guidance | Tool descriptions only | Adds server initialize instructions that direct clients to compact index → selected detail workflows |
+| Tool catalog cost | Exposes the complete tool set to every client | Adds a compact **Core** profile by default and a **Full compatibility** profile for legacy and overlapping tools |
+| Tool contracts | Basic parameter types | Adds field descriptions, enums, bounds, examples, MCP behavior annotations, numeric compatibility and structured errors |
 | Diagnostics | Server startup state and generic errors | Adds nested startup diagnostics, runtime/JVM/proxy status, capture counts and a metadata-only tool action log |
 | Packaging | Embeds the proxy by updating the completed archive with an external `jar` command | Declares the proxy as a Gradle archive input and always emits `build/libs/burp-mcp-all.jar` |
 | UI | Uses the Swing/Burp list colors directly | Keeps Burp theming and derives restrained alternating rows that remain readable in dark and light modes |
@@ -38,7 +40,8 @@ fork point; the upstream project may continue to evolve independently.
 
 ### Compatibility retained
 
-- Original HTTP/1.1, HTTP/2, Repeater, Intruder, configuration, editor and utility tools remain available.
+- Original HTTP/1.1, HTTP/2, Repeater, Intruder, configuration, editor and utility tools remain available in the
+  **Full compatibility** profile.
 - Scanner and Collaborator tools remain conditional on Burp Suite Professional.
 - The default local endpoint remains `127.0.0.1:9876` and the embedded proxy still bridges stdio clients to SSE.
 - Existing bulk Proxy and Organizer tools remain for clients that already depend on them. Their compact replacements
@@ -65,6 +68,8 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Reviewed single-request mutations protected by preview SHA-256 and target approval
 - MCP runtime diagnostics, initialize instructions and metadata-only action audit log
 - Theme-aware Burp UI, including restrained alternating rows in dark and light themes
+- Core and Full compatibility tool profiles to control MCP catalog size
+- Structured Proxy-history search with stable cursors, field projection and a total response budget
 
 ## Usage
 
@@ -120,6 +125,8 @@ Upon successful loading, the MCP Server Extension will be active within Burp Sui
 Configuration for the extension is done through the Burp Suite UI in the `MCP` tab.
 - **Toggle the MCP Server**: The `Enabled` checkbox controls whether the MCP server is active.
 - **Enable config editing**: The `Enable tools that can edit your config` checkbox allows the MCP server to expose tools which can edit Burp configuration files.
+- **Tool catalog**: `Core (recommended)` exposes the modern compact workflows. `Full compatibility` also exposes
+  legacy bulk, editor and utility tools. Restart the MCP server after changing the profile.
 - **Connection address**: You can configure the host and port used by MCP clients. By default, it listens on `http://127.0.0.1:9876`.
 
 ### Codex CLI Client
@@ -245,6 +252,10 @@ connects to the local SSE endpoint. Target requests still pass through Burp's co
 
 ## MCP tool catalog
 
+The default **Core** profile exposes the modern tools used for compact discovery, selected detail, Burp handoff,
+analysis and reviewed sends. Select **Full compatibility** in Burp to additionally expose the overlapping legacy
+history tools, raw tab constructors, editor controls and encoding utilities.
+
 ### Requests, Burp tabs and utilities
 
 | Tool | Purpose |
@@ -281,6 +292,8 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 
 | Tool | Purpose | Defaults |
 | --- | --- | --- |
+| `search_http_history` | Structured Proxy search with host/path/method/status/MIME/color/scope filters, projected fields and stable cursors | 20 compact items; 20,000 total characters |
+| `get_http_exchange` | Retrieve only selected summary/request/response/notes parts by native Burp ID | Raw content; 30,000 total characters |
 | `get_proxy_http_history_summary` | Native ID, color, method, endpoint without query values, status, parameter names and response-start timing | Highlighted traffic; static assets omitted; 20 items |
 | `get_requests_by_color` | Request, response and notes for selected colors | 5 items; 5,000 characters per message; credentials intact; compaction enabled |
 | `get_request_by_index` | Retrieve an exchange by the native Burp `#` ID, including uncolored or static items | 10,000 characters per message; original content |
@@ -303,26 +316,21 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 | `get_mcp_diagnostics` | Show endpoint, runtime, embedded proxy and buffer status | No target traffic |
 | `get_mcp_action_log` | Show bounded local tool audit events | Never stores arguments or bodies |
 
-Legacy bulk tools remain available for compatibility: `get_proxy_http_history`, `get_organizer_items` and
-`get_organizer_items_regex`. Prefer the compact index and detail tools above because they avoid loading unrelated
-request and response bodies into the MCP context.
+The summary/color/regex variants and legacy bulk tools remain available in **Full compatibility**:
+`get_proxy_http_history_summary`, `get_requests_by_color`, `get_request_by_index`, `get_proxy_http_history_regex`,
+`get_proxy_http_history`, `get_organizer_items` and `get_organizer_items_regex`. Prefer `search_http_history` and
+`get_http_exchange` because they avoid loading unrelated bodies and let the caller cap the complete result.
 
 Examples of MCP tool arguments:
 
 ```json
-{"colors":["RED","GRAY"],"count":10,"offset":0}
+{"hostContains":"api.example.test","methods":["POST"],"statusCodes":[200,401],"fields":["id","method","host","path","statusCode"],"count":10,"maxOutputChars":12000}
 ```
 
-Use that with the summary tool. For a detail page:
+Use the returned `nextCursor` for a stable next page. For selected raw evidence:
 
 ```json
-{"colors":["RED"],"count":2,"offset":0,"maxMessageChars":5000}
-```
-
-For one captured exchange:
-
-```json
-{"index":105,"contentOffset":0,"maxMessageChars":10000}
+{"id":105,"parts":["SUMMARY","REQUEST","RESPONSE"],"fields":["id","method","host","path","statusCode"],"contentOffset":0,"maxMessageChars":10000,"maxOutputChars":24000}
 ```
 
 Build a filtered Site Map index and fetch selected evidence:
@@ -352,8 +360,10 @@ Preview a single mutation:
 Only after reviewing the exact request, pass the returned `mutatedSha256` to `send_mutated_request` together
 with the same mutation fields. A mismatch fails closed before target approval or transmission.
 
-IDs are Burp's persistent IDs, not positions in a filtered list. Results are newest first. `offset` applies
-to filtered history items; page responses include `total`, `returned`, `colorCounts` and `nextOffset`.
+IDs are Burp's persistent IDs, not positions in a filtered list. Smart search results are newest first by default.
+`search_http_history` returns an opaque `nextCursor` that retains the first page's native-ID snapshot.
+Its `fields`, `omitNulls` and `maxOutputChars` parameters directly control result size. In Full compatibility,
+`offset` applies to filtered legacy history items; page responses include `total`, `returned`, `colorCounts` and `nextOffset`.
 `colorCounts` describes all matching items. Pagination reflects the current history snapshot; concurrent
 removals can still shift offsets. The first history page also returns `snapshotMaxId`; reuse it on later pages
 to exclude newly arriving traffic, and retain native IDs when tracking individual exchanges.

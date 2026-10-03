@@ -49,6 +49,16 @@ class McpConfigTest {
     }
 
     @Test
+    fun `tool profile defaults to core and persists full`() {
+        assertEquals(ToolProfile.CORE, config.toolProfile)
+
+        config.toolProfile = ToolProfile.FULL
+
+        assertEquals(ToolProfile.FULL, config.toolProfile)
+        verify { persistedObject.setString("_toolProfile", "FULL") }
+    }
+
+    @Test
     fun `addAutoApproveTarget should add new target`() {
         val result = config.addAutoApproveTarget("example.com")
 

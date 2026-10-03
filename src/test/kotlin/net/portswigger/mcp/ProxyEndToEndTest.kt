@@ -42,6 +42,7 @@ class ProxyEndToEndTest {
     init {
         every { persistedObject.getBoolean(any()) } returns true
         every { persistedObject.getString(any()) } returns "127.0.0.1"
+        every { persistedObject.getString("_toolProfile") } returns "FULL"
         every { persistedObject.getInteger("port") } returns testPort
         every { persistedObject.setBoolean(any(), any()) } returns Unit
         every { persistedObject.setString(any(), any()) } returns Unit

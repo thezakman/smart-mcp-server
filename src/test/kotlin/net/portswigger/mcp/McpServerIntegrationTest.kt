@@ -92,6 +92,10 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("preview_request_mutation"), "Server should expose mutation preview")
             assertTrue(toolNames.contains("send_mutated_request"), "Server should expose single mutation send")
             assertTrue(toolNames.contains("get_mcp_diagnostics"), "Server should expose diagnostics")
+            assertTrue(toolNames.contains("search_http_history"), "Core should expose structured history search")
+            assertTrue(toolNames.contains("get_http_exchange"), "Core should expose bounded exchange detail")
+            assertFalse(toolNames.contains("url_encode"), "Core should hide legacy utility tools")
+            assertTrue(tools.size in 25..35, "Core catalog should stay compact; got ${tools.size} tools")
             
             val pingResult = client.ping()
             assertNotNull(pingResult, "Ping should return a result")

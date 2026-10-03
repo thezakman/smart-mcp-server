@@ -2,6 +2,7 @@ package net.portswigger.mcp.config.components
 
 import net.portswigger.mcp.config.Design
 import net.portswigger.mcp.config.McpConfig
+import net.portswigger.mcp.config.ToolProfile
 import net.portswigger.mcp.config.ToggleSwitch
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -109,7 +110,11 @@ class ServerConfigurationPanel(
         val configurationGroup = createGroupPanel(
             title = "Configuration access",
             description = "Protect access to Burp settings.",
-            components = arrayOf(filterConfigCredentialsCheckBox, configEditingToolingCheckBox)
+            components = arrayOf(
+                filterConfigCredentialsCheckBox,
+                configEditingToolingCheckBox,
+                createToolProfileSelector()
+            )
         )
 
         add(JPanel(GridLayout(1, 2, Design.Spacing.SM, 0)).apply {
@@ -199,6 +204,33 @@ class ServerConfigurationPanel(
             foreground = Design.Colors.onSurfaceVariant
             alignmentX = LEFT_ALIGNMENT
             border = BorderFactory.createEmptyBorder(0, Design.Spacing.MD, 0, 0)
+        }
+    }
+
+    private fun createToolProfileSelector(): JPanel {
+        val selector = JComboBox(ToolProfile.entries.toTypedArray()).apply {
+            selectedItem = config.toolProfile
+            font = Design.Typography.bodyMedium
+            toolTipText = config.toolProfile.description + " Applies after server restart."
+            addItemListener { event ->
+                if (event.stateChange == ItemEvent.SELECTED) {
+                    val profile = event.item as ToolProfile
+                    config.toolProfile = profile
+                    toolTipText = profile.description + " Applies after server restart."
+                }
+            }
+        }
+
+        return JPanel(BorderLayout(Design.Spacing.SM, 0)).apply {
+            isOpaque = false
+            alignmentX = LEFT_ALIGNMENT
+            add(JLabel("Tool catalog").apply {
+                font = Design.Typography.labelLarge
+                foreground = Design.Colors.onSurface
+                toolTipText = "Core reduces MCP context size. Full preserves every compatibility tool."
+            }, BorderLayout.WEST)
+            add(selector, BorderLayout.CENTER)
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
     }
 

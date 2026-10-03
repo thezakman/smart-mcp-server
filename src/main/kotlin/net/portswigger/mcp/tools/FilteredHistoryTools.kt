@@ -14,20 +14,25 @@ import net.portswigger.mcp.security.DataAccessType
 import net.portswigger.mcp.security.HttpRequestSecurity
 
 /** Read-only ColorStrike ports. All filtering and serialization follow the existing access decision. */
-internal fun Server.registerFilteredHistoryTools(api: MontoyaApi, config: McpConfig) {
+internal fun Server.registerFilteredHistoryTools(
+    api: MontoyaApi,
+    config: McpConfig,
+    includeLegacyHttpSearch: Boolean = true
+) {
     fun requireAccess(type: DataAccessType) {
         check(runBlocking { DataAccessSecurity.checkDataAccessPermission(type, config) }) {
             "History access denied by Burp Suite"
         }
     }
 
-    mcpTool<GetProxyHttpHistoryRegex>(
+    if (includeLegacyHttpSearch) mcpTool<GetProxyHttpHistoryRegex>(
         "Search captured HTTP URL/request/response/notes by regex, with optional colors, highlightedOnly, " +
             "includeStatic and inScopeOnly filters. Defaults to all colors including unmarked traffic. " +
             "Returns newest first with native Burp IDs. count=1..100. Captured credentials remain intact " +
             "by default; redactSecrets=true enables optional best-effort masking. Noise is compacted by default. " +
             "Each item is bounded valid JSON; get_request_by_index retrieves further detail. " +
-            "Regex work is limited; narrow filters or simplify expressions when limits are exceeded. No traffic is sent."
+            "Regex work is limited; narrow filters or simplify expressions when limits are exceeded. No traffic is sent.",
+        behavior = READ_ONLY_TOOL
     ) {
         validateHistoryPage(count, offset, 100)
         val selectedColors = parseHistoryColors(colors)
@@ -44,7 +49,8 @@ internal fun Server.registerFilteredHistoryTools(api: MontoyaApi, config: McpCon
             "(inScopeOnly=false includes all). count=1..100, offset paginates filtered items. " +
             "Each bounded JSON item includes native message ID and WebSocket connection ID. " +
             "Captured credentials remain intact by default; redactSecrets=true enables optional masking. " +
-            "Noise is compacted by default. No traffic is sent."
+            "Noise is compacted by default. No traffic is sent.",
+        behavior = READ_ONLY_TOOL
     ) {
         validateHistoryPage(count, offset, 100)
         requireAccess(DataAccessType.WEBSOCKET_HISTORY)
@@ -57,7 +63,8 @@ internal fun Server.registerFilteredHistoryTools(api: MontoyaApi, config: McpCon
             "Applies Burp project scope before reading payloads by default; inScopeOnly=false includes all. " +
             "count=1..100. Native message/connection IDs are preserved. Each item is bounded JSON, " +
             "with credentials intact by default and optional redactSecrets=true masking. Noise compaction is enabled by default. " +
-            "Regex work is limited; an exceeded limit returns an error, never a partial match list. No traffic is sent."
+            "Regex work is limited; an exceeded limit returns an error, never a partial match list. No traffic is sent.",
+        behavior = READ_ONLY_TOOL
     ) {
         validateHistoryPage(count, offset, 100)
         val matcher = HistoryRegex(regex)
@@ -70,7 +77,8 @@ internal fun Server.registerFilteredHistoryTools(api: MontoyaApi, config: McpCon
         "Read a captured WebSocket message by its native Burp # ID. Includes messages outside project scope. " +
             "contentOffset and maxMessageChars=256..50000 provide bounded access to the complete payload and notes. " +
             "Original captured content, including credentials and encoded data, is returned by default. " +
-            "Follow nextOffset for additional chunks; redactSecrets and compact are explicit opt-ins. No traffic is sent."
+            "Follow nextOffset for additional chunks; redactSecrets and compact are explicit opt-ins. No traffic is sent.",
+        behavior = READ_ONLY_TOOL
     ) {
         require(index >= 0) { "index must be a non-negative native Burp ID" }
         validateMessageWindow(contentOffset, maxMessageChars)

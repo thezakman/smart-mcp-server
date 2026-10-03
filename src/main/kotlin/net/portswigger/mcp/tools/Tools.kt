@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import net.portswigger.mcp.config.McpConfig
+import net.portswigger.mcp.config.ToolProfile
 import net.portswigger.mcp.schema.encodeHistoryItem
 import net.portswigger.mcp.schema.toSerializableForm
 import net.portswigger.mcp.security.DataAccessSecurity
@@ -109,8 +110,10 @@ private fun normalizePrelude(prelude: String): String = prelude
     .replace("\n", "\r\n")      // All LF → proper CRLF
 
 fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
-    registerHistoryTriageTools(api, config)
-    registerFilteredHistoryTools(api, config)
+    val fullCatalog = config.toolProfile == ToolProfile.FULL
+    registerSmartHistoryTools(api, config)
+    if (fullCatalog) registerHistoryTriageTools(api, config)
+    registerFilteredHistoryTools(api, config, includeLegacyHttpSearch = fullCatalog)
     registerAdvancedTools(api, config)
 
     mcpTool<SendHttp1Request>("Issues an HTTP/1.1 request and returns the response.", EXTERNAL_REQUEST_TOOL) {
@@ -165,41 +168,41 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         response?.toString() ?: "<no response>"
     }
 
-    mcpUnitTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2.") {
+    if (fullCatalog) mcpUnitTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2.") {
         val fixedContent = normalizeHttpContent(content)
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
         api.repeater().sendToRepeater(request, tabName)
     }
 
-    mcpUnitTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter.") {
+    if (fullCatalog) mcpUnitTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter.") {
         val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
         api.repeater().sendToRepeater(request, tabName)
     }
 
-    mcpUnitTool<SendToIntruder>("Sends an HTTP request to Intruder with the specified HTTP request and optional tab name. Make sure to use carriage returns appropriately.") {
+    if (fullCatalog) mcpUnitTool<SendToIntruder>("Sends an HTTP request to Intruder with the specified HTTP request and optional tab name. Make sure to use carriage returns appropriately.") {
         val fixedContent = normalizeHttpContent(content)
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
         api.intruder().sendToIntruder(request, tabName)
     }
 
-    mcpTool<UrlEncode>("URL encodes the input string") {
+    if (fullCatalog) mcpTool<UrlEncode>("URL encodes the input string") {
         api.utilities().urlUtils().encode(content)
     }
 
-    mcpTool<UrlDecode>("URL decodes the input string") {
+    if (fullCatalog) mcpTool<UrlDecode>("URL decodes the input string") {
         api.utilities().urlUtils().decode(content)
     }
 
-    mcpTool<Base64Encode>("Base64 encodes the input string") {
+    if (fullCatalog) mcpTool<Base64Encode>("Base64 encodes the input string") {
         api.utilities().base64Utils().encodeToString(content)
     }
 
-    mcpTool<Base64Decode>("Base64 decodes the input string") {
+    if (fullCatalog) mcpTool<Base64Decode>("Base64 decodes the input string") {
         api.utilities().base64Utils().decode(content).toString()
     }
 
-    mcpTool<GenerateRandomString>("Generates a random string of specified length and character set") {
+    if (fullCatalog) mcpTool<GenerateRandomString>("Generates a random string of specified length and character set") {
         api.utilities().randomUtils().randomString(length, characterSet)
     }
 
@@ -229,29 +232,26 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         }
     }
 
-    val toolingDisabledMessage =
-        "User has disabled configuration editing. They can enable it in the MCP tab in Burp by selecting 'Enable tools that can edit your config'"
-
-    mcpTool<SetProjectOptions>("Sets project-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'project_options' object.", DESTRUCTIVE_CONFIG_TOOL) {
-        if (config.configEditingTooling) {
-            api.logging().logToOutput("Setting project-level configuration: $json")
-            api.burpSuite().importProjectOptionsFromJson(json)
-
-            "Project configuration has been applied"
-        } else {
-            toolingDisabledMessage
+    if (config.configEditingTooling) {
+        val toolingDisabledMessage =
+            "User has disabled configuration editing. They can enable it in the MCP tab in Burp by selecting 'Enable tools that can edit your config'"
+        mcpTool<SetProjectOptions>("Sets project-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'project_options' object.", DESTRUCTIVE_CONFIG_TOOL) {
+            if (config.configEditingTooling) {
+                api.logging().logToOutput("Setting project-level configuration: $json")
+                api.burpSuite().importProjectOptionsFromJson(json)
+                "Project configuration has been applied"
+            } else {
+                toolingDisabledMessage
+            }
         }
-    }
-
-
-    mcpTool<SetUserOptions>("Sets user-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'user_options' object.", DESTRUCTIVE_CONFIG_TOOL) {
-        if (config.configEditingTooling) {
-            api.logging().logToOutput("Setting user-level configuration: $json")
-            api.burpSuite().importUserOptionsFromJson(json)
-
-            "User configuration has been applied"
-        } else {
-            toolingDisabledMessage
+        mcpTool<SetUserOptions>("Sets user-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'user_options' object.", DESTRUCTIVE_CONFIG_TOOL) {
+            if (config.configEditingTooling) {
+                api.logging().logToOutput("Setting user-level configuration: $json")
+                api.burpSuite().importUserOptionsFromJson(json)
+                "User configuration has been applied"
+            } else {
+                toolingDisabledMessage
+            }
         }
     }
 
@@ -302,7 +302,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         }
     }
 
-    mcpPaginatedTool<GetProxyHttpHistory>("Displays items within the proxy HTTP history") {
+    if (fullCatalog) mcpPaginatedTool<GetProxyHttpHistory>("Displays items within the proxy HTTP history") {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.HTTP_HISTORY, config, api, "HTTP history")
         }
@@ -313,7 +313,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         api.proxy().history().asSequence().map { encodeHistoryItem(it.toSerializableForm()) }
     }
 
-    mcpPaginatedTool<GetOrganizerItems>("Displays items within the Organizer tab") {
+    if (fullCatalog) mcpPaginatedTool<GetOrganizerItems>("Displays items within the Organizer tab") {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.ORGANIZER, config, api, "Organizer")
         }
@@ -324,7 +324,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         api.organizer().items().asSequence().map { encodeHistoryItem(it.toSerializableForm()) }
     }
 
-    mcpPaginatedTool<GetOrganizerItemsRegex>("Displays items matching a specified regex within the Organizer tab") {
+    if (fullCatalog) mcpPaginatedTool<GetOrganizerItemsRegex>("Displays items matching a specified regex within the Organizer tab") {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.ORGANIZER, config, api, "Organizer")
         }
@@ -337,13 +337,13 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
             .map { encodeHistoryItem(it.toSerializableForm()) }
     }
 
-    mcpTool<SetTaskExecutionEngineState>("Sets the state of Burp's task execution engine (paused or unpaused)") {
+    if (fullCatalog) mcpTool<SetTaskExecutionEngineState>("Sets the state of Burp's task execution engine (paused or unpaused)") {
         api.burpSuite().taskExecutionEngine().state = if (running) RUNNING else PAUSED
 
         "Task execution engine is now ${if (running) "running" else "paused"}"
     }
 
-    mcpTool<SetProxyInterceptState>("Enables or disables Burp Proxy Intercept") {
+    if (fullCatalog) mcpTool<SetProxyInterceptState>("Enables or disables Burp Proxy Intercept") {
         if (intercepting) {
             api.proxy().enableIntercept()
         } else {
@@ -353,11 +353,11 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         "Intercept has been ${if (intercepting) "enabled" else "disabled"}"
     }
 
-    mcpTool("get_active_editor_contents", "Outputs the contents of the user's active message editor") {
+    if (fullCatalog) mcpTool("get_active_editor_contents", "Outputs the contents of the user's active message editor") {
         getActiveEditor(api)?.text ?: "<No active editor>"
     }
 
-    mcpTool<SetActiveEditorContents>("Sets the content of the user's active message editor") {
+    if (fullCatalog) mcpTool<SetActiveEditorContents>("Sets the content of the user's active message editor") {
         val editor = getActiveEditor(api) ?: return@mcpTool "<No active editor>"
 
         if (!editor.isEditable) {
