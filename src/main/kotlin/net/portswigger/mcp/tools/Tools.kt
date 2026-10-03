@@ -12,7 +12,7 @@ import burp.api.montoya.http.message.requests.HttpRequest
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.config.ToolProfile
 import net.portswigger.mcp.schema.encodeHistoryItem
@@ -283,7 +283,9 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         if (!readOnlyCatalog) mcpTool<GenerateCollaboratorPayload>(
             "Generates a Burp Collaborator payload URL for out-of-band (OOB) testing. " +
             "Inject this payload into requests to detect server-side interactions (DNS lookups, HTTP requests, SMTP). " +
-            "Use get_collaborator_interactions with the returned payloadId to check for interactions.",
+            "Optional origin fields pre-link captured evidence; later MCP, Repeater or Intruder requests containing " +
+            "the payload are linked automatically with their exchange ID and Trace ID. Use get_collaborator_interactions " +
+            "with the returned payloadId to check for correlated interactions.",
             behavior = OPEN_WORLD_MUTATION_TOOL
         ) {
             api.logging().logToOutput("MCP generating Collaborator payload${customData?.let { " with custom data" } ?: ""}")
@@ -295,13 +297,28 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
             }
 
             val server = collaboratorClient.server()
-            "Payload: $payload\nPayload ID: ${payload.id()}\nCollaborator server: ${server.address()}"
+            val payloadId = payload.id().toString()
+            val correlation = CollaboratorCorrelationStore.register(
+                payloadId = payloadId,
+                payload = payload.toString(),
+                customData = customData,
+                originSource = originSource,
+                originId = originId,
+                originExchangeId = originExchangeId,
+                traceId = traceId
+            )
+            buildJsonObject {
+                put("payload", payload.toString())
+                put("payloadId", payloadId)
+                put("collaboratorServer", server.address())
+                put("correlation", Json.encodeToJsonElement(correlation))
+            }.toString()
         }
 
         mcpTool<GetCollaboratorInteractions>(
             "Polls Burp Collaborator for out-of-band interactions (DNS, HTTP, SMTP). " +
             "Optionally filter by payloadId from generate_collaborator_payload. " +
-            "Returns interaction details including type, timestamp, client IP, and protocol-specific data.",
+            "Returns interaction details plus the originating exchange and Trace ID when correlated.",
             behavior = OPEN_WORLD_READ_TOOL
         ) {
             api.logging().logToOutput("MCP polling Collaborator interactions${payloadId?.let { " for payload: $it" } ?: ""}")
@@ -315,9 +332,18 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
             if (interactions.isEmpty()) {
                 "No interactions detected"
             } else {
-                interactions.joinToString("\n\n") {
-                    Json.encodeToString(it.toSerializableForm())
-                }
+                buildJsonArray {
+                    interactions.forEach { interaction ->
+                        val details = interaction.toSerializableForm()
+                        val serialized = Json.encodeToJsonElement(details)
+                        add(CollaboratorCorrelationStore.correlatedInteraction(
+                            interaction = serialized,
+                            requestedPayloadId = payloadId,
+                            interactionId = details.id,
+                            customData = details.customData
+                        ))
+                    }
+                }.toString()
             }
         }
     }
@@ -506,7 +532,11 @@ data class GetOrganizerItemsRegex(val regex: String, override val count: Int, ov
 
 @Serializable
 data class GenerateCollaboratorPayload(
-    val customData: String? = null
+    val customData: String? = null,
+    val originSource: String? = null,
+    val originId: Int? = null,
+    val originExchangeId: String? = null,
+    val traceId: String? = null
 )
 
 @Serializable

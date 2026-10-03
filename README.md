@@ -33,7 +33,8 @@ fork point; the upstream project may continue to evolve independently.
 | MCP guidance | Tool descriptions only | Adds server initialize instructions that direct clients to compact index → selected detail workflows |
 | Tool catalog cost | Exposes the complete tool set to every client | Adds **Read-only investigation**, compact **Core** and **Full compatibility** profiles; history summary, regex search and exchange retrieval are available in Core |
 | Tool contracts | Basic parameter types | Adds field descriptions, enums, bounds, examples, MCP behavior annotations, numeric compatibility and structured errors |
-| Diagnostics | Server startup state and generic errors | Adds nested startup diagnostics, runtime/JVM/proxy status, catalog/schema size, per-tool timing/output metrics, history-index metrics and a metadata-only action log |
+| Collaborator | Payload generation and interaction polling | Correlates payload, originating MCP/Repeater/Intruder exchange, received interaction and Trace ID in one result |
+| Diagnostics | Server startup state and generic errors | Adds nested startup diagnostics, runtime/JVM/proxy status, catalog/schema size, per-tool timing/output metrics, history-index and Collaborator-correlation metrics, plus a metadata-only action log |
 | MCP transport | Local SSE endpoint consumed through the packaged stdio proxy | Keeps SSE/stdio compatibility and adds a native Streamable HTTP endpoint at `/mcp` |
 | Packaging | Embeds the proxy by updating the completed archive with an external `jar` command | Declares the proxy as a Gradle archive input and always emits `build/libs/burp-mcp-all.jar` |
 | UI | Uses the Swing/Burp list colors directly | Keeps Burp theming and derives restrained alternating rows that remain readable in dark and light modes |
@@ -69,6 +70,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Repeater and Intruder capture after extension load, with bounded in-memory buffers
 - Read-only response comparison and JSON-key/header difference analysis
 - Three-control authorization comparison for anonymous, invalid-token and valid-token evidence
+- Automatic Collaborator correlation across payload, originating exchange, interaction and Trace ID
 - Reviewed single-request mutations protected by preview SHA-256 and target approval
 - MCP runtime diagnostics, initialize instructions and metadata-only action audit log
 - Theme-aware Burp UI, including restrained alternating rows in dark and light themes

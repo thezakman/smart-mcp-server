@@ -21,4 +21,7 @@ internal val SERVER_INSTRUCTIONS = """
     Use compare_http_exchanges for pairs and compare_auth_controls for anonymous, invalid-token and valid-token
     controls without generating traffic. Preserve native Burp IDs and MCP exchange IDs in notes and results so
     findings remain traceable. Site Map keys are content-derived lookup keys.
+
+    Collaborator payloads are correlated with later MCP, Repeater or Intruder requests that contain them. Poll with
+    the payloadId whenever possible so the result includes the origin exchange and Trace ID deterministically.
 """.trimIndent()

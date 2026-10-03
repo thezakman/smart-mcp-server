@@ -81,8 +81,7 @@ object TrafficStore {
                 val tool = responseReceived.toolSource().toolType()
                 if (tool == ToolType.REPEATER || tool == ToolType.INTRUDER) {
                     val request = responseReceived.initiatingRequest()
-                    buffers.computeIfAbsent(tool.name) { ToolBuffer() }.add(
-                        CapturedExchange(
+                    val exchange = CapturedExchange(
                             exchangeId = "${tool.name.lowercase()}-${responseReceived.messageId()}",
                             messageId = responseReceived.messageId(),
                             tool = tool.name,
@@ -97,7 +96,8 @@ object TrafficStore {
                             request = request.toString(),
                             response = responseReceived.toString()
                         )
-                    )
+                    buffers.computeIfAbsent(tool.name) { ToolBuffer() }.add(exchange)
+                    CollaboratorCorrelationStore.linkRequest(exchange)
                 }
                 return ResponseReceivedAction.continueWith(responseReceived)
             }
@@ -132,6 +132,7 @@ object TrafficStore {
             response = responseText
         )
         buffers.computeIfAbsent("MCP") { ToolBuffer() }.add(exchange)
+        CollaboratorCorrelationStore.linkRequest(exchange)
         return exchange
     }
 

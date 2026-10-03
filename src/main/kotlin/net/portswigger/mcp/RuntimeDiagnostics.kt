@@ -9,6 +9,7 @@ import kotlinx.serialization.json.put
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.tools.HistoryMetadataIndex
 import net.portswigger.mcp.tools.OutboundRequestGate
+import net.portswigger.mcp.tools.CollaboratorCorrelationStore
 import net.portswigger.mcp.tools.ToolAuditLog
 import java.time.Instant
 
@@ -60,6 +61,7 @@ object RuntimeDiagnostics {
         put("toolSchemaChars", toolSchemaChars)
         put("historyIndex", HistoryMetadataIndex.metrics())
         put("outboundRequests", OutboundRequestGate.metrics())
+        put("collaboratorCorrelations", CollaboratorCorrelationStore.metrics())
         putJsonArray("toolMetrics") {
             ToolAuditLog.metrics().forEach { add(Json.encodeToJsonElement(net.portswigger.mcp.tools.ToolMetricSummary.serializer(), it)) }
         }

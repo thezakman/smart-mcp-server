@@ -925,11 +925,10 @@ class ToolsKtTest {
             runBlocking {
                 val result = client.callTool("generate_collaborator_payload", emptyMap())
                 delay(100)
-                result.expectTextContent(
-                    "Payload: abc123.burpcollaborator.net\n" +
-                    "Payload ID: abc123\n" +
-                    "Collaborator server: burpcollaborator.net"
-                )
+                val text = result.expectTextContent()
+                assertTrue(text.contains("\"payload\":\"abc123.burpcollaborator.net\""), text)
+                assertTrue(text.contains("\"payloadId\":\"abc123\""), text)
+                assertTrue(text.contains("\"correlation\""), text)
             }
 
             verify(exactly = 1) { collaboratorClient.generatePayload() }
@@ -951,11 +950,9 @@ class ToolsKtTest {
                     )
                 )
                 delay(100)
-                result.expectTextContent(
-                    "Payload: custom123.burpcollaborator.net\n" +
-                    "Payload ID: custom123\n" +
-                    "Collaborator server: burpcollaborator.net"
-                )
+                val text = result.expectTextContent()
+                assertTrue(text.contains("\"payloadId\":\"custom123\""), text)
+                assertTrue(text.contains("\"customData\":\"mydata\""), text)
             }
 
             verify(exactly = 1) { collaboratorClient.generatePayload("mydata") }

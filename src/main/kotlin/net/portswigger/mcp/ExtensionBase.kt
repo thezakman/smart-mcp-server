@@ -11,6 +11,7 @@ import net.portswigger.mcp.providers.ManualProxyInstallerProvider
 import net.portswigger.mcp.providers.ProxyJarManager
 import net.portswigger.mcp.tools.TrafficStore
 import net.portswigger.mcp.tools.ToolAuditLog
+import net.portswigger.mcp.tools.CollaboratorCorrelationStore
 
 @Suppress("unused")
 class ExtensionBase : BurpExtension {
@@ -52,6 +53,7 @@ class ExtensionBase : BurpExtension {
             serverManager.shutdown()
             TrafficStore.shutdown()
             ToolAuditLog.clear()
+            CollaboratorCorrelationStore.clear()
             configUi.cleanup()
             config.cleanup()
         }

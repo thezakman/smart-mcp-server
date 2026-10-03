@@ -31,6 +31,30 @@ class AdvancedToolsTest {
     }
 
     @Test
+    fun `Collaborator payload links automatically to originating exchange and trace ID`() {
+        CollaboratorCorrelationStore.clear()
+        CollaboratorCorrelationStore.register(
+            payloadId = "abc123",
+            payload = "abc123.example.test",
+            customData = "case-1",
+            originSource = null,
+            originId = null,
+            originExchangeId = null,
+            traceId = null
+        )
+        val request = mockk<HttpRequest>(relaxed = true)
+        every { request.toString() } returns "GET /?u=abc123.example.test HTTP/1.1\r\n" +
+            "Host: target.example\r\nTraceparent: 00-feedface-cafebabe-01\r\n\r\n"
+        val exchange = TrafficStore.recordMcp(request, null, "")
+
+        val correlated = CollaboratorCorrelationStore.correlate("abc123", "interaction-1", "{}", "case-1")
+
+        assertEquals(exchange.exchangeId, correlated?.originExchangeId)
+        assertEquals(exchange.messageId, correlated?.originId)
+        assertEquals("00-feedface-cafebabe-01", correlated?.traceId)
+    }
+
+    @Test
     fun `outbound request gate rejects excess concurrency`() {
         OutboundRequestGate.configure(1)
         try {
@@ -46,7 +70,10 @@ class AdvancedToolsTest {
         }
     }
     @AfterEach
-    fun cleanup() = ToolAuditLog.clear()
+    fun cleanup() {
+        ToolAuditLog.clear()
+        CollaboratorCorrelationStore.clear()
+    }
 
     @Test
     fun `method mutation is explicit and returns transformed request`() {
