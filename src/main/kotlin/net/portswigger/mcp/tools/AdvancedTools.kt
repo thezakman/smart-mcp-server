@@ -207,7 +207,7 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
         "Send exactly one explicit mutation of a captured Proxy request. Always preview first. " +
             "Pass the preview's mutatedSha256 as expectedRequestSha256. This tool performs one request only, " +
             "with no batching or retries, and uses Burp's per-target approval.",
-        behavior = EXTERNAL_REQUEST_TOOL
+        behavior = BURP_GATED_TOOL
     ) {
         validateMessageWindow(0, maxMessageChars)
         requireAccess(DataAccessType.HTTP_HISTORY)

@@ -134,7 +134,7 @@ internal fun Server.registerFilteredHistoryTools(
             "request, preserving service and HTTP protocol, and passes through Burp MCP's existing per-target " +
             "request approval. No payload injection, batching or automatic retries. Returns a bounded response " +
             "with credentials intact by default; redactSecrets=true is explicit opt-in.",
-        behavior = EXTERNAL_REQUEST_TOOL
+        behavior = BURP_GATED_TOOL
     ) {
         require(index >= 0) { "index must be a non-negative native Burp ID" }
         validateMessageWindow(0, maxMessageChars)

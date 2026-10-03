@@ -29,15 +29,19 @@ data class ToolBehavior(
     val idempotent: Boolean? = null,
     val openWorld: Boolean? = null
 ) {
-    fun annotations() = ToolAnnotations(title, readOnly, destructive, idempotent, openWorld)
+    fun annotations(): ToolAnnotations? =
+        if (title == null && readOnly == null && destructive == null && idempotent == null && openWorld == null) null
+        else ToolAnnotations(title, readOnly, destructive, idempotent, openWorld)
 }
 
 val READ_ONLY_TOOL = ToolBehavior(readOnly = true, destructive = false, idempotent = true, openWorld = false)
 val LOCAL_MUTATION_TOOL = ToolBehavior(readOnly = false, destructive = false, idempotent = false, openWorld = false)
-val EXTERNAL_REQUEST_TOOL = ToolBehavior(readOnly = false, destructive = false, idempotent = false, openWorld = true)
+// Burp owns approval for these tools through its UI toggles and target allowlist.
+// Omitting client approval hints prevents clients configured with approval_policy="never"
+// from rejecting the call before Burp can apply those controls.
+val BURP_GATED_TOOL = ToolBehavior()
 val OPEN_WORLD_READ_TOOL = ToolBehavior(readOnly = true, destructive = false, idempotent = true, openWorld = true)
 val OPEN_WORLD_MUTATION_TOOL = ToolBehavior(readOnly = false, destructive = false, idempotent = false, openWorld = true)
-val DESTRUCTIVE_CONFIG_TOOL = ToolBehavior(readOnly = false, destructive = true, idempotent = false, openWorld = false)
 
 class ToolBusyException(message: String) : IllegalStateException(message)
 

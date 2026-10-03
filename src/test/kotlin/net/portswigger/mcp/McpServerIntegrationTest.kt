@@ -100,6 +100,26 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("get_http_exchange"), "Core should expose bounded exchange detail")
             assertFalse(toolNames.contains("url_encode"), "Core should hide legacy utility tools")
             assertTrue(tools.size in 25..35, "Core catalog should stay compact; got ${tools.size} tools")
+
+            val burpGatedTools = setOf(
+                "send_http1_request",
+                "send_http2_request",
+                "replay_history_item",
+                "send_mutated_request",
+                "set_project_options",
+                "set_user_options"
+            )
+            burpGatedTools.forEach { name ->
+                assertNull(
+                    tools.single { it.name == name }.annotations,
+                    "$name must defer approval to the Burp UI instead of requesting client approval"
+                )
+            }
+            assertEquals(
+                true,
+                tools.single { it.name == "search_http_history" }.annotations?.readOnlyHint,
+                "Read-only hints should remain available to MCP clients"
+            )
             
             val pingResult = client.ping()
             assertNotNull(pingResult, "Ping should return a result")
