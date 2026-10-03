@@ -36,7 +36,10 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                 server = null
 
                 val mcpServer = Server(
-                    serverInfo = Implementation("burp-suite", "1.3.0"), options = ServerOptions(
+                    serverInfo = Implementation(
+                        "burp-suite",
+                        KtorServerManager::class.java.`package`.implementationVersion ?: "development"
+                    ), options = ServerOptions(
                         capabilities = ServerCapabilities(
                             tools = ServerCapabilities.Tools(listChanged = false)
                         )

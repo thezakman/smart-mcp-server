@@ -6,17 +6,41 @@ import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.ContentBlock
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.InternalSerializationApi
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 import net.portswigger.mcp.schema.asInputSchema
+import kotlin.reflect.KClass
+import kotlin.reflect.full.memberProperties
 import kotlin.experimental.ExperimentalTypeInference
+
+data class ToolBehavior(
+    val title: String? = null,
+    val readOnly: Boolean? = null,
+    val destructive: Boolean? = null,
+    val idempotent: Boolean? = null,
+    val openWorld: Boolean? = null
+) {
+    fun annotations() = ToolAnnotations(title, readOnly, destructive, idempotent, openWorld)
+}
+
+val READ_ONLY_TOOL = ToolBehavior(readOnly = true, destructive = false, idempotent = true, openWorld = false)
+val LOCAL_MUTATION_TOOL = ToolBehavior(readOnly = false, destructive = false, idempotent = false, openWorld = false)
+val EXTERNAL_REQUEST_TOOL = ToolBehavior(readOnly = false, destructive = false, idempotent = false, openWorld = true)
+val DESTRUCTIVE_CONFIG_TOOL = ToolBehavior(readOnly = false, destructive = true, idempotent = false, openWorld = false)
 
 @OptIn(InternalSerializationApi::class)
 inline fun <reified I : Any> Server.mcpTool(
     description: String,
+    behavior: ToolBehavior = ToolBehavior(),
     crossinline execute: I.() -> List<ContentBlock>
 ) {
     val toolName = I::class.simpleName?.toLowerSnakeCase() ?: error("Couldn't find name for ${I::class}")
@@ -30,7 +54,7 @@ inline fun <reified I : Any> Server.mcpTool(
                 content = execute(
                     Json.decodeFromJsonElement(
                         serializer,
-                        request.params.arguments ?: JsonObject(emptyMap())
+                        coerceIntegralArguments(request.params.arguments ?: JsonObject(emptyMap()), I::class)
                     )
                 ),
                 isError = false
@@ -39,14 +63,17 @@ inline fun <reified I : Any> Server.mcpTool(
             result
         } catch (e: Exception) {
             ToolAuditLog.add(toolName, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
-            CallToolResult(
-                content = listOf(TextContent("Error: ${e.message}")),
-                isError = true
-            )
+            structuredToolError(e)
         }
     }
 
-    addTool(name = toolName, description = description, inputSchema = inputSchema, handler = handler)
+    addTool(
+        name = toolName,
+        description = description,
+        inputSchema = inputSchema,
+        toolAnnotations = behavior.annotations(),
+        handler = handler
+    )
 }
 
 @OptIn(ExperimentalTypeInference::class)
@@ -54,18 +81,20 @@ inline fun <reified I : Any> Server.mcpTool(
 @JvmName("mcpToolString")
 inline fun <reified I : Any> Server.mcpTool(
     description: String,
+    behavior: ToolBehavior = ToolBehavior(),
     crossinline execute: I.() -> String
 ) {
-    mcpTool<I>(description, execute = {
+    mcpTool<I>(description, behavior, execute = {
         listOf(TextContent(execute(this)))
     })
 }
 
 inline fun <reified I : Any> Server.mcpUnitTool(
     description: String,
+    behavior: ToolBehavior = LOCAL_MUTATION_TOOL,
     crossinline execute: I.() -> Unit
 ) {
-    mcpTool<I>(description, execute = {
+    mcpTool<I>(description, behavior, execute = {
         execute(this)
 
         listOf(TextContent("Executed tool"))
@@ -118,17 +147,25 @@ inline fun <reified I : Paginated> Server.mcpPaginatedTool(
 inline fun Server.mcpTool(
     name: String,
     description: String,
+    behavior: ToolBehavior = ToolBehavior(),
     crossinline execute: () -> List<ContentBlock>
 ) {
     val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, _ ->
         CallToolResult(content = execute(), isError = false)
     }
-    addTool(name = name, description = description, inputSchema = ToolSchema(), handler = handler)
+    addTool(
+        name = name,
+        description = description,
+        inputSchema = ToolSchema(),
+        toolAnnotations = behavior.annotations(),
+        handler = handler
+    )
 }
 
 inline fun Server.mcpTool(
     name: String,
     description: String,
+    behavior: ToolBehavior = ToolBehavior(),
     crossinline execute: () -> String
 ) {
     val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, _ ->
@@ -139,10 +176,56 @@ inline fun Server.mcpTool(
             result
         } catch (e: Exception) {
             ToolAuditLog.add(name, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
-            CallToolResult(content = listOf(TextContent("Error: ${e.message}")), isError = true)
+            structuredToolError(e)
         }
     }
-    addTool(name = name, description = description, inputSchema = ToolSchema(), handler = handler)
+    addTool(
+        name = name,
+        description = description,
+        inputSchema = ToolSchema(),
+        toolAnnotations = behavior.annotations(),
+        handler = handler
+    )
+}
+
+fun structuredToolError(error: Exception): CallToolResult {
+    val code = when (error) {
+        is SerializationException, is IllegalArgumentException -> "INVALID_ARGUMENT"
+        is IllegalStateException -> "PRECONDITION_FAILED"
+        else -> "TOOL_EXECUTION_FAILED"
+    }
+    val message = error.message?.take(2000) ?: error::class.simpleName ?: "Tool execution failed"
+    val payload = buildJsonObject {
+        put("ok", false)
+        put("code", code)
+        put("message", message)
+        put("retryable", false)
+    }
+    return CallToolResult(
+        content = listOf(TextContent(payload.toString())),
+        isError = true,
+        structuredContent = payload
+    )
+}
+
+fun coerceIntegralArguments(arguments: JsonObject, type: KClass<*>): JsonObject {
+    val integralNames = type.memberProperties.filter {
+        it.returnType.classifier == Int::class || it.returnType.classifier == Long::class
+    }.map { it.name }.toSet()
+    if (integralNames.isEmpty()) return arguments
+
+    return JsonObject(arguments.mapValues { (name, value) ->
+        if (name !in integralNames) value else coerceWholeNumber(value)
+    })
+}
+
+private fun coerceWholeNumber(value: JsonElement): JsonElement {
+    val primitive = value as? JsonPrimitive ?: return value
+    if (primitive.isString) return value
+    val raw = primitive.content
+    val number = raw.toDoubleOrNull() ?: return value
+    if (!number.isFinite() || number % 1.0 != 0.0) return value
+    return JsonPrimitive(number.toLong())
 }
 
 fun String.toLowerSnakeCase(): String {

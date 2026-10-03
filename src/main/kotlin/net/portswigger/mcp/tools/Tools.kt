@@ -113,7 +113,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     registerFilteredHistoryTools(api, config)
     registerAdvancedTools(api, config)
 
-    mcpTool<SendHttp1Request>("Issues an HTTP/1.1 request and returns the response.") {
+    mcpTool<SendHttp1Request>("Issues an HTTP/1.1 request and returns the response.", EXTERNAL_REQUEST_TOOL) {
         val allowed = runBlocking {
             HttpRequestSecurity.checkHttpRequestPermission(targetHostname, targetPort, config, content, api)
         }
@@ -132,7 +132,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         response?.toString() ?: "<no response>"
     }
 
-    mcpTool<SendHttp2Request>("Issues an HTTP/2 request and returns the response. Do NOT pass headers to the body parameter.") {
+    mcpTool<SendHttp2Request>("Issues an HTTP/2 request and returns the response. Do NOT pass headers to the body parameter.", EXTERNAL_REQUEST_TOOL) {
         val http2RequestDisplay = buildString {
             pseudoHeaders.forEach { (key, value) ->
                 val headerName = if (key.startsWith(":")) key else ":$key"
@@ -205,7 +205,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool(
         "output_project_options",
-        "Outputs current project-level configuration in JSON format. You can use this to determine the schema for available config options."
+        "Outputs current project-level configuration in JSON format. You can use this to determine the schema for available config options.",
+        READ_ONLY_TOOL
     ) {
         val json = api.burpSuite().exportProjectOptionsAsJson()
         if (config.filterConfigCredentials) {
@@ -217,7 +218,8 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
     mcpTool(
         "output_user_options",
-        "Outputs current user-level configuration in JSON format. You can use this to determine the schema for available config options."
+        "Outputs current user-level configuration in JSON format. You can use this to determine the schema for available config options.",
+        READ_ONLY_TOOL
     ) {
         val json = api.burpSuite().exportUserOptionsAsJson()
         if (config.filterConfigCredentials) {
@@ -230,7 +232,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     val toolingDisabledMessage =
         "User has disabled configuration editing. They can enable it in the MCP tab in Burp by selecting 'Enable tools that can edit your config'"
 
-    mcpTool<SetProjectOptions>("Sets project-level configuration in JSON format. This will be merged with existing configuration. Make sure to export before doing this, so you know what the schema is. Make sure the JSON has a top level 'user_options' object!") {
+    mcpTool<SetProjectOptions>("Sets project-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'project_options' object.", DESTRUCTIVE_CONFIG_TOOL) {
         if (config.configEditingTooling) {
             api.logging().logToOutput("Setting project-level configuration: $json")
             api.burpSuite().importProjectOptionsFromJson(json)
@@ -242,7 +244,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     }
 
 
-    mcpTool<SetUserOptions>("Sets user-level configuration in JSON format. This will be merged with existing configuration. Make sure to export before doing this, so you know what the schema is. Make sure the JSON has a top level 'project_options' object!") {
+    mcpTool<SetUserOptions>("Sets user-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'user_options' object.", DESTRUCTIVE_CONFIG_TOOL) {
         if (config.configEditingTooling) {
             api.logging().logToOutput("Setting user-level configuration: $json")
             api.burpSuite().importUserOptionsFromJson(json)

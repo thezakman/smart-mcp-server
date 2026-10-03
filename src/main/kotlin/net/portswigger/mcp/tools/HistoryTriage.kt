@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import net.portswigger.mcp.config.McpConfig
+import net.portswigger.mcp.schema.ToolField
 import net.portswigger.mcp.security.DataAccessSecurity
 import net.portswigger.mcp.security.DataAccessType
 import java.util.Locale
@@ -27,7 +28,8 @@ internal fun Server.registerHistoryTriageTools(api: MontoyaApi, config: McpConfi
             "Optional regex searches captured URL/request/response/notes; inScopeOnly uses Burp project scope. " +
             "Regex searches have bounded work and fail explicitly when limits are exceeded. " +
             "count=1..100; offset paginates filtered items, newest first. Reuse snapshotMaxId from the first " +
-            "response on later pages to exclude newly arriving traffic. Returns JSON and nextOffset."
+            "response on later pages to exclude newly arriving traffic. Returns JSON and nextOffset.",
+        behavior = READ_ONLY_TOOL
     ) {
         validateHistoryPage(count, offset, 100)
         val selectedColors = parseHistoryColors(colors)
@@ -46,7 +48,8 @@ internal fun Server.registerHistoryTriageTools(api: MontoyaApi, config: McpConfi
             "set redactSecrets=true only when explicitly needed. maxMessageChars=256..50000 per message. " +
             "Optional regex searches captured URL/request/response/notes; inScopeOnly uses project scope. " +
             "Returns valid JSON with explicit truncation metadata. Reuse snapshotMaxId while paging. " +
-            "Use get_request_by_index for further chunks."
+            "Use get_request_by_index for further chunks.",
+        behavior = READ_ONLY_TOOL
     ) {
         validateHistoryPage(count, offset, 20)
         validateMessageWindow(0, maxMessageChars)
@@ -65,7 +68,8 @@ internal fun Server.registerHistoryTriageTools(api: MontoyaApi, config: McpConfi
             "Includes uncolored and static items. No requests are sent. " +
             "contentOffset and maxMessageChars=256..50000 allow bounded access to complete request/response text; " +
             "follow each message's nextOffset. Original captured text is returned by default. " +
-            "redactSecrets=true enables best-effort masking. Returns an error if the ID no longer exists."
+            "redactSecrets=true enables best-effort masking. Returns an error if the ID no longer exists.",
+        behavior = READ_ONLY_TOOL
     ) {
         require(index >= 0) { "index must be a non-negative native Burp ID" }
         validateMessageWindow(contentOffset, maxMessageChars)
@@ -78,24 +82,36 @@ internal fun Server.registerHistoryTriageTools(api: MontoyaApi, config: McpConfi
 
 @Serializable
 data class GetProxyHttpHistorySummary(
+    @ToolField("Maximum number of summaries to return.", minimum = 1, maximum = 100, example = "20")
     val count: Int = 20,
+    @ToolField("Zero-based offset inside the filtered snapshot.", minimum = 0, example = "0")
     val offset: Int = 0,
+    @ToolField("Burp highlight colors to include. Empty selects all colors.", enumValues = ["RED", "ORANGE", "YELLOW", "GREEN", "CYAN", "BLUE", "PINK", "MAGENTA", "GRAY", "NONE"])
     val colors: List<String> = emptyList(),
+    @ToolField("Return only highlighted items when colors is empty.")
     val highlightedOnly: Boolean = true,
+    @ToolField("Include common static assets such as images, fonts, CSS and JavaScript.")
     val includeStatic: Boolean = false,
+    @ToolField("Optional bounded regular expression matched against URL, messages and notes.")
     val regex: String? = null,
+    @ToolField("Restrict results to the current Burp project scope.")
     val inScopeOnly: Boolean = false,
+    @ToolField("Highest native Burp ID from the first page; reuse it to keep later pages stable.", minimum = 0)
     val snapshotMaxId: Int? = null
 )
 
 @Serializable
 data class GetRequestsByColor(
+    @ToolField("One or more Burp highlight colors.", enumValues = ["RED", "ORANGE", "YELLOW", "GREEN", "CYAN", "BLUE", "PINK", "MAGENTA", "GRAY", "NONE"])
     val colors: List<String>,
+    @ToolField("Maximum number of exchanges to return.", minimum = 1, maximum = 20, example = "5")
     val count: Int = 5,
+    @ToolField("Zero-based offset inside the filtered snapshot.", minimum = 0)
     val offset: Int = 0,
     val includeStatic: Boolean = false,
     val redactSecrets: Boolean = false,
     val compact: Boolean = true,
+    @ToolField("Maximum characters returned for each request, response and notes window.", minimum = 256, maximum = 50000)
     val maxMessageChars: Int = 5000,
     val regex: String? = null,
     val inScopeOnly: Boolean = false,
@@ -104,8 +120,11 @@ data class GetRequestsByColor(
 
 @Serializable
 data class GetRequestByIndex(
+    @ToolField("Native Burp Proxy history ID, not a page offset.", minimum = 0)
     val index: Int,
+    @ToolField("Character offset for request, response and notes windows.", minimum = 0)
     val contentOffset: Int = 0,
+    @ToolField("Maximum characters returned for each message window.", minimum = 256, maximum = 50000)
     val maxMessageChars: Int = 10000,
     val redactSecrets: Boolean = false,
     val compact: Boolean = false
