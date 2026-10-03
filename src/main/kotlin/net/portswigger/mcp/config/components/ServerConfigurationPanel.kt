@@ -112,7 +112,7 @@ class ServerConfigurationPanel(
             components = arrayOf(filterConfigCredentialsCheckBox, configEditingToolingCheckBox)
         )
 
-        add(JPanel(GridLayout(1, 2, Design.Spacing.MD, 0)).apply {
+        add(JPanel(GridLayout(1, 2, Design.Spacing.SM, 0)).apply {
             isOpaque = false
             alignmentX = LEFT_ALIGNMENT
             add(accessGroup)
