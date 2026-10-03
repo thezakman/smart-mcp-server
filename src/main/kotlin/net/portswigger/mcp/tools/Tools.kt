@@ -137,8 +137,14 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
         val response = OutboundRequestGate.withPermit { api.http().sendRequest(request) }
-
-        response?.toString() ?: "<no response>"
+        val responseMessage = runCatching { response?.response() }.getOrNull()
+        val responseText = responseMessage?.toString() ?: response?.toString().orEmpty()
+        val captured = TrafficStore.recordMcp(
+            request,
+            responseMessage,
+            responseText
+        )
+        directExchangeResult(captured, maxMessageChars)
     }
 
     if (!readOnlyCatalog) mcpTool<SendHttp2Request>("Issues an HTTP/2 request and returns the response. Do NOT pass headers to the body parameter.", BURP_GATED_TOOL) {
@@ -170,8 +176,14 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
         val response = OutboundRequestGate.withPermit { api.http().sendRequest(request, HttpMode.HTTP_2) }
-
-        response?.toString() ?: "<no response>"
+        val responseMessage = runCatching { response?.response() }.getOrNull()
+        val responseText = responseMessage?.toString() ?: response?.toString().orEmpty()
+        val captured = TrafficStore.recordMcp(
+            request,
+            responseMessage,
+            responseText
+        )
+        directExchangeResult(captured, maxMessageChars)
     }
 
     if (fullCatalog) mcpUnitTool<CreateRepeaterTab>("Creates an HTTP/1.1 Repeater tab with the specified raw HTTP request and optional tab name. Make sure to use carriage returns appropriately. Prefer create_repeater_tab_http2 for modern web targets that speak HTTP/2.") {
@@ -406,7 +418,8 @@ data class SendHttp1Request(
     val content: String,
     override val targetHostname: String,
     override val targetPort: Int,
-    override val usesHttps: Boolean
+    override val usesHttps: Boolean,
+    val maxMessageChars: Int = 20_000
 ) : HttpServiceParams
 
 @Serializable
@@ -416,7 +429,8 @@ data class SendHttp2Request(
     val requestBody: String,
     override val targetHostname: String,
     override val targetPort: Int,
-    override val usesHttps: Boolean
+    override val usesHttps: Boolean,
+    val maxMessageChars: Int = 20_000
 ) : HttpServiceParams
 
 @Serializable

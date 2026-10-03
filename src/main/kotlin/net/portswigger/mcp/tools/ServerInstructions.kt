@@ -15,6 +15,10 @@ internal val SERVER_INSTRUCTIONS = """
     profiles, use the sending tools carefully. Preview mutations before sending them. Every send remains subject to Burp's per-target approval and
     the configured concurrency limit. Do not turn a single mutation into a batch or retry it automatically.
 
-    Use compare_http_exchanges to analyze already captured responses without generating traffic. Preserve native
-    Burp IDs in notes and results so findings remain traceable. Site Map keys are content-derived lookup keys.
+    Direct HTTP sends return a persistent in-session exchangeId and messageId. Retrieve every response chunk with
+    get_captured_exchange_by_id, then save it to Organizer when it should become project evidence.
+
+    Use compare_http_exchanges for pairs and compare_auth_controls for anonymous, invalid-token and valid-token
+    controls without generating traffic. Preserve native Burp IDs and MCP exchange IDs in notes and results so
+    findings remain traceable. Site Map keys are content-derived lookup keys.
 """.trimIndent()

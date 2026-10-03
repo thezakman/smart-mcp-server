@@ -8,9 +8,18 @@ import burp.api.montoya.http.handler.HttpRequestToBeSent
 import burp.api.montoya.http.handler.HttpResponseReceived
 import burp.api.montoya.http.handler.RequestToBeSentAction
 import burp.api.montoya.http.handler.ResponseReceivedAction
+import burp.api.montoya.http.message.requests.HttpRequest
+import burp.api.montoya.http.message.responses.HttpResponse
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.put
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.absoluteValue
 
 private const val MAX_CAPTURED_PER_TOOL = 1000
 
@@ -22,6 +31,7 @@ private inline fun <T> safeCapture(block: () -> T): T? = try {
 
 /** A bounded, in-memory record of Repeater and Intruder traffic observed after extension load. */
 data class CapturedExchange(
+    val exchangeId: String,
     val messageId: Int,
     val tool: String,
     val capturedAt: String,
@@ -38,6 +48,7 @@ data class CapturedExchange(
 
 object TrafficStore {
     private val buffers = ConcurrentHashMap<String, ToolBuffer>()
+    private val nextMcpMessageId = AtomicInteger(-1)
 
     @Volatile
     private var registration: Registration? = null
@@ -72,6 +83,7 @@ object TrafficStore {
                     val request = responseReceived.initiatingRequest()
                     buffers.computeIfAbsent(tool.name) { ToolBuffer() }.add(
                         CapturedExchange(
+                            exchangeId = "${tool.name.lowercase()}-${responseReceived.messageId()}",
                             messageId = responseReceived.messageId(),
                             tool = tool.name,
                             capturedAt = Instant.now().toString(),
@@ -97,13 +109,42 @@ object TrafficStore {
         return if (newestFirst) items.asReversed() else items
     }
 
+    fun snapshot(source: String, newestFirst: Boolean): List<CapturedExchange> {
+        val items = buffers[source.uppercase()]?.snapshot().orEmpty()
+        return if (newestFirst) items.asReversed() else items
+    }
+
+    fun recordMcp(request: HttpRequest, response: HttpResponse?, responseText: String): CapturedExchange {
+        val messageId = nextMcpMessageId.getAndDecrement()
+        val exchange = CapturedExchange(
+            exchangeId = "mcp-${messageId.toLong().absoluteValue.toString().padStart(8, '0')}",
+            messageId = messageId,
+            tool = "MCP",
+            capturedAt = Instant.now().toString(),
+            method = safeCapture { request.method() },
+            host = safeCapture { request.httpService().host() },
+            port = safeCapture { request.httpService().port() },
+            secure = safeCapture { request.httpService().secure() },
+            path = safeCapture { request.path() },
+            statusCode = safeCapture { response?.statusCode()?.toInt() },
+            mimeType = safeCapture { response?.mimeType()?.name },
+            request = request.toString(),
+            response = responseText
+        )
+        buffers.computeIfAbsent("MCP") { ToolBuffer() }.add(exchange)
+        return exchange
+    }
+
     fun byId(messageId: Int): CapturedExchange? = buffers.values.asSequence()
         .flatMap { it.snapshot().asSequence() }
         .lastOrNull { it.messageId == messageId }
 
-    fun counts(): Map<String, Int> = ToolType.entries
-        .filter { it == ToolType.REPEATER || it == ToolType.INTRUDER }
-        .associate { it.name to (buffers[it.name]?.snapshot()?.size ?: 0) }
+    fun byExchangeId(exchangeId: String): CapturedExchange? = buffers.values.asSequence()
+        .flatMap { it.snapshot().asSequence() }
+        .lastOrNull { it.exchangeId.equals(exchangeId.trim(), ignoreCase = true) }
+
+    fun counts(): Map<String, Int> = listOf(ToolType.REPEATER.name, ToolType.INTRUDER.name, "MCP")
+        .associateWith { buffers[it]?.snapshot()?.size ?: 0 }
 
     @Synchronized
     fun shutdown() {
@@ -111,11 +152,13 @@ object TrafficStore {
         registration = null
         buffers.values.forEach { it.clear() }
         buffers.clear()
+        nextMcpMessageId.set(-1)
     }
 }
 
 @Serializable
 data class CapturedExchangeSummary(
+    val exchangeId: String,
     val messageId: Int,
     val tool: String,
     val capturedAt: String,
@@ -131,6 +174,7 @@ data class CapturedExchangeSummary(
 )
 
 internal fun CapturedExchange.summary() = CapturedExchangeSummary(
+    exchangeId = exchangeId,
     messageId = messageId,
     tool = tool,
     capturedAt = capturedAt,
@@ -144,3 +188,16 @@ internal fun CapturedExchange.summary() = CapturedExchangeSummary(
     requestLength = request.length,
     responseLength = response.length
 )
+
+internal fun directExchangeResult(exchange: CapturedExchange, maxMessageChars: Int): String {
+    validateMessageWindow(0, maxMessageChars)
+    return buildJsonObject {
+        put("source", "CAPTURED")
+        put("exchangeId", exchange.exchangeId)
+        put("messageId", exchange.messageId)
+        put("statusCode", exchange.statusCode?.let(::JsonPrimitive) ?: JsonNull)
+        put("summary", kotlinx.serialization.json.Json.encodeToJsonElement(exchange.summary()))
+        put("response", messageWindow(exchange.response, 0, maxMessageChars, false, false))
+        put("retrieval", "Use get_captured_exchange_by_id with exchangeId or messageId and contentOffset to retrieve every chunk")
+    }.toString()
+}

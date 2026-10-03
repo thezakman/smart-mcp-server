@@ -316,6 +316,14 @@ private fun buildBudgetedExchange(
         val remaining = maxOutputChars - JsonObject(values).toString().length - 256
         if (remaining < 512) {
             omitted += part
+            values[part.lowercase()] = buildJsonObject {
+                put("text", "")
+                put("offset", contentOffset)
+                put("nextOffset", contentOffset)
+                put("truncated", true)
+                put("omittedByOutputBudget", true)
+                put("retrieval", "Request this part alone with the same contentOffset, or use its burp:// resource URI")
+            }
             continue
         }
         val allowed = minOf(maxMessageChars, (remaining - 256).coerceAtLeast(256))
@@ -330,6 +338,7 @@ private fun buildBudgetedExchange(
         if (trial.toString().length <= maxOutputChars) values[key] = window else omitted += part
     }
     values["omittedParts"] = JsonArray(omitted.map(::JsonPrimitive))
+    values["complete"] = JsonPrimitive(omitted.isEmpty())
     val result = JsonObject(values)
     check(result.toString().length <= maxOutputChars) { "maxOutputChars is too small for requested exchange metadata" }
     return result

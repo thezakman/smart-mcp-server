@@ -194,6 +194,7 @@ class ToolsKtTest {
                 val text = result.expectTextContent()
                 assertFalse(text.contains("Error"), 
                     "Expected success response but got error: $text")
+                assertTrue(text.contains("\"exchangeId\":\"mcp-"), text)
             }
 
             verify(exactly = 1) { httpService.sendRequest(any<HttpRequest>()) }
@@ -225,7 +226,9 @@ class ToolsKtTest {
                 )
 
                 delay(100)
-                result.expectTextContent("<no response>")
+                val text = result.expectTextContent()
+                assertTrue(text.contains("\"exchangeId\":\"mcp-"), text)
+                assertTrue(text.contains("\"text\":\"\""), text)
             }
         }
 
@@ -267,6 +270,7 @@ class ToolsKtTest {
                 val text = result.expectTextContent()
                 assertFalse(text.contains("Error"), 
                     "Expected success response but got error: $text")
+                assertTrue(text.contains("\"exchangeId\":\"mcp-"), text)
             }
 
             verify(exactly = 1) { HttpRequest.http2Request(any(), any(), any<String>()) }
@@ -310,7 +314,9 @@ class ToolsKtTest {
                 )
 
                 delay(100)
-                result.expectTextContent("<no response>")
+                val text = result.expectTextContent()
+                assertTrue(text.contains("\"exchangeId\":\"mcp-"), text)
+                assertTrue(text.contains("\"text\":\"\""), text)
             }
         }
         

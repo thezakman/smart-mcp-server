@@ -134,8 +134,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
     }
 
     if (!readOnlyMode) mcpTool<SaveExchangeToOrganizer>(
-        "Save an already captured Proxy, Repeater or Intruder exchange to Organizer without sending target traffic. " +
-            "source is PROXY or CAPTURED. Optional notes are attached to the saved copy.",
+        "Save an already captured Proxy, Repeater, Intruder or MCP exchange to Organizer without sending target traffic. " +
+            "source is PROXY, CAPTURED or MCP. Optional notes and highlight color are attached to the saved copy.",
         behavior = LOCAL_MUTATION_TOOL
     ) {
         requireAccess(DataAccessType.ORGANIZER)
@@ -145,12 +145,16 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
             request,
             burp.api.montoya.http.message.responses.HttpResponse.httpResponse(pair.response)
         )
-        val annotated = notes?.let {
-            require(it.length <= 100_000) { "notes must not exceed 100000 characters" }
-            requestResponse.withAnnotations(burp.api.montoya.core.Annotations.annotations(it))
-        } ?: requestResponse
+        notes?.let { require(it.length <= 100_000) { "notes must not exceed 100000 characters" } }
+        val highlight = color?.let(::parseHighlightColor) ?: HighlightColor.NONE
+        val annotated = if (notes != null || color != null) {
+            requestResponse.withAnnotations(
+                burp.api.montoya.core.Annotations.annotations(notes.orEmpty(), highlight)
+            )
+        } else requestResponse
         api.organizer().sendToOrganizer(annotated)
-        "Saved ${source.uppercase(Locale.ROOT)} exchange $id to Organizer without sending traffic"
+        "Saved ${source.uppercase(Locale.ROOT)} exchange $id to Organizer without sending traffic" +
+            (color?.let { " with ${highlight.name} highlight" } ?: "")
     }
 
     mcpTool<GetRepeaterTraffic>(
@@ -168,12 +172,15 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
     }
 
     mcpTool<GetCapturedExchangeById>(
-        "Fetch one Repeater or Intruder exchange by captured message ID. Content is unchanged and chunked.",
+        "Fetch one Repeater, Intruder or direct MCP exchange by persistent exchangeId or numeric messageId. " +
+            "Content is unchanged and chunked; follow nextOffset until null.",
         behavior = READ_ONLY_TOOL
     ) {
         validateMessageWindow(contentOffset, maxMessageChars)
         requireAccess(DataAccessType.HTTP_HISTORY)
-        val item = TrafficStore.byId(messageId) ?: error("No captured exchange with message ID $messageId")
+        require((exchangeId == null) != (messageId == null)) { "Provide exactly one of exchangeId or messageId" }
+        val item = exchangeId?.let(TrafficStore::byExchangeId) ?: messageId?.let(TrafficStore::byId)
+            ?: error("No captured exchange matches the supplied identifier")
         buildJsonObject {
             put("summary", Json.encodeToJsonElement(item.summary()))
             put("request", messageWindow(item.request, contentOffset, maxMessageChars, false, false))
@@ -189,6 +196,24 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
         val left = resolveExchange(api, leftSource, leftId, config, requireDataAccess = true)
         val right = resolveExchange(api, rightSource, rightId, config, requireDataAccess = true)
         compareExchanges(left, right).toString()
+    }
+
+    mcpTool<CompareAuthControls>(
+        "Compare three already captured authorization controls: anonymous, invalid token and valid token. " +
+            "No traffic is sent. Returns per-response metrics and all pairwise status, header and JSON-key differences.",
+        behavior = READ_ONLY_TOOL
+    ) {
+        val anonymous = resolveExchange(api, anonymousSource, anonymousId, config, requireDataAccess = true)
+        val invalid = resolveExchange(api, invalidTokenSource, invalidTokenId, config, requireDataAccess = true)
+        val valid = resolveExchange(api, validTokenSource, validTokenId, config, requireDataAccess = true)
+        buildJsonObject {
+            put("anonymous", exchangeMetrics(anonymous, parseRawMessage(anonymous.response)))
+            put("invalidToken", exchangeMetrics(invalid, parseRawMessage(invalid.response)))
+            put("validToken", exchangeMetrics(valid, parseRawMessage(valid.response)))
+            put("anonymousVsInvalid", compareExchanges(anonymous, invalid))
+            put("anonymousVsValid", compareExchanges(anonymous, valid))
+            put("invalidVsValid", compareExchanges(invalid, valid))
+        }.toString()
     }
 
     mcpTool<PreviewRequestMutation>(
@@ -224,6 +249,7 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
         if (!allowed) return@mcpTool "Send HTTP request denied by Burp Suite"
         val result = OutboundRequestGate.withPermit { api.http().sendRequest(mutated) }
         val response = result.response()
+        val captured = TrafficStore.recordMcp(mutated, response, response?.toString().orEmpty())
         buildJsonObject {
             put("sourceId", sourceId)
             put("sentRequestSha256", actualHash)
@@ -233,6 +259,8 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
             put("responseStartMillis", result.timingData().orElse(null)
                 ?.timeBetweenRequestSentAndStartOfResponse()?.toMillis()?.let(::JsonPrimitive) ?: JsonNull)
             put("response", messageWindow(response?.toString().orEmpty(), 0, maxMessageChars, false, false))
+            put("exchangeId", captured.exchangeId)
+            put("messageId", captured.messageId)
         }.toString()
     }
 
@@ -359,14 +387,14 @@ private fun resolveExchange(
             ExchangeView("PROXY", id, item.finalRequest().httpService(), item.finalRequest().toString(),
                 item.response()?.toString().orEmpty())
         }
-        "CAPTURED", "REPEATER", "INTRUDER" -> {
+        "CAPTURED", "REPEATER", "INTRUDER", "MCP" -> {
             val item = TrafficStore.byId(id) ?: error("No captured Repeater/Intruder exchange with message ID $id")
             val host = item.host ?: error("Captured exchange $id has no HTTP service host")
             val port = item.port ?: if (item.secure == true) 443 else 80
             val service = HttpService.httpService(host, port, item.secure == true)
             ExchangeView(item.tool, id, service, item.request, item.response)
         }
-        else -> error("source must be PROXY or CAPTURED")
+        else -> error("source must be PROXY, CAPTURED or MCP")
     }
 }
 
@@ -424,6 +452,12 @@ private fun parseRawMessage(raw: String): ParsedMessage {
         }
     }
     return ParsedMessage(lines.firstOrNull().orEmpty(), headers, body)
+}
+
+private fun parseHighlightColor(value: String): HighlightColor = try {
+    HighlightColor.valueOf(value.trim().uppercase(Locale.ROOT))
+} catch (_: IllegalArgumentException) {
+    error("Invalid highlight color: $value")
 }
 
 private fun jsonKeys(body: String): Set<String> = try {
@@ -552,7 +586,8 @@ data class GetOrganizerItemsById(
 @Serializable data class SaveExchangeToOrganizer(
     val source: String,
     val id: Int,
-    val notes: String? = null
+    val notes: String? = null,
+    val color: String? = null
 )
 
 @Serializable data class GetRepeaterTraffic(
@@ -568,7 +603,8 @@ data class GetOrganizerItemsById(
 )
 
 @Serializable data class GetCapturedExchangeById(
-    val messageId: Int,
+    val messageId: Int? = null,
+    val exchangeId: String? = null,
     val contentOffset: Int = 0,
     val maxMessageChars: Int = 10_000
 )
@@ -578,6 +614,15 @@ data class GetOrganizerItemsById(
     val leftId: Int,
     val rightSource: String,
     val rightId: Int
+)
+
+@Serializable data class CompareAuthControls(
+    val anonymousSource: String,
+    val anonymousId: Int,
+    val invalidTokenSource: String,
+    val invalidTokenId: Int,
+    val validTokenSource: String,
+    val validTokenId: Int
 )
 
 @Serializable data class PreviewRequestMutation(

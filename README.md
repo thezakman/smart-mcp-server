@@ -26,9 +26,9 @@ fork point; the upstream project may continue to evolve independently.
 | Message detail | Bulk entries with a fixed output limit | Fetches selected HTTP and WebSocket messages by native ID with Unicode-safe chunks and explicit continuation offsets |
 | Sensitive traffic | Captured messages returned by the original bulk tools | Keeps raw cookies, tokens and credentials intact by default; optional masking is explicit and tool-specific |
 | Site Map | No compact Site Map MCP workflow | Adds filtered compact indexing and content-derived SHA-256 keys with selective detail retrieval |
-| Organizer | Bulk read and regex search | Adds compact index/detail, native IDs, notes, highlight updates and saving existing captured exchanges without target traffic |
+| Organizer | Bulk read and regex search | Adds compact index/detail, native IDs, notes, highlight updates and saving existing captured exchanges with note and color without target traffic |
 | Repeater and Intruder | Can create tabs from supplied MCP content | Also opens exact Proxy-history requests by ID and captures subsequent Repeater/Intruder exchanges in bounded memory buffers |
-| Response analysis | Caller compares raw results manually | Adds read-only comparison of status, sizes, hashes, response headers and JSON key paths |
+| Response analysis | Caller compares raw results manually | Adds read-only pairwise comparison plus anonymous vs invalid-token vs valid-token control comparison |
 | Request changes | Caller constructs and sends a complete request | Adds previewed single-request mutation for method, path, header, body and common parameter types; send requires the preview SHA-256 and target approval |
 | MCP guidance | Tool descriptions only | Adds server initialize instructions that direct clients to compact index → selected detail workflows |
 | Tool catalog cost | Exposes the complete tool set to every client | Adds **Read-only investigation**, compact **Core** and **Full compatibility** profiles; history summary, regex search and exchange retrieval are available in Core |
@@ -64,9 +64,11 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Compact Proxy, Site Map, Organizer, Repeater and Intruder indexes
 - Native Burp IDs and content-derived Site Map keys for traceable evidence retrieval
 - Bounded request/response chunks with credentials, cookies and tokens intact by default
+- Persistent in-session exchange IDs for direct MCP sends, with chunked retrieval and Organizer handoff
 - Color, regex, scope, static-resource, host, method, status and MIME filters
 - Repeater and Intruder capture after extension load, with bounded in-memory buffers
 - Read-only response comparison and JSON-key/header difference analysis
+- Three-control authorization comparison for anonymous, invalid-token and valid-token evidence
 - Reviewed single-request mutations protected by preview SHA-256 and target approval
 - MCP runtime diagnostics, initialize instructions and metadata-only action audit log
 - Theme-aware Burp UI, including restrained alternating rows in dark and light themes

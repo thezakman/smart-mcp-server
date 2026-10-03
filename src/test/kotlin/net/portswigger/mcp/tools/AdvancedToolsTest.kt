@@ -1,6 +1,7 @@
 package net.portswigger.mcp.tools
 
 import burp.api.montoya.http.message.requests.HttpRequest
+import burp.api.montoya.http.message.responses.HttpResponse
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -12,6 +13,22 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AdvancedToolsTest {
+
+    @Test
+    fun `direct MCP exchanges receive persistent IDs and chunk metadata`() {
+        val request = mockk<HttpRequest>(relaxed = true)
+        val response = mockk<HttpResponse>(relaxed = true)
+        every { request.toString() } returns "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        every { response.statusCode() } returns 200
+
+        val exchange = TrafficStore.recordMcp(request, response, "HTTP/1.1 200 OK\r\n\r\n" + "x".repeat(1000))
+        val result = directExchangeResult(exchange, 256)
+
+        assertTrue(exchange.exchangeId.startsWith("mcp-"))
+        assertTrue(exchange.messageId < 0)
+        assertSame(exchange, TrafficStore.byExchangeId(exchange.exchangeId))
+        assertTrue(result.contains("\"nextOffset\":256"), result)
+    }
 
     @Test
     fun `outbound request gate rejects excess concurrency`() {
