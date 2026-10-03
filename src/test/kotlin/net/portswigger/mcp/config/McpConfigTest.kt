@@ -59,6 +59,24 @@ class McpConfigTest {
     }
 
     @Test
+    fun `read only tool profile is parsed and persisted`() {
+        config.toolProfile = ToolProfile.READ_ONLY
+
+        assertEquals(ToolProfile.READ_ONLY, config.toolProfile)
+        verify { persistedObject.setString("_toolProfile", "READ_ONLY") }
+    }
+
+    @Test
+    fun `request concurrency defaults safely and persists a bounded value`() {
+        assertEquals(2, config.maxConcurrentRequests)
+
+        config.maxConcurrentRequests = 99
+
+        assertEquals(16, config.maxConcurrentRequests)
+        verify { persistedObject.setInteger("_maxConcurrentRequests", 16) }
+    }
+
+    @Test
     fun `addAutoApproveTarget should add new target`() {
         val result = config.addAutoApproveTarget("example.com")
 

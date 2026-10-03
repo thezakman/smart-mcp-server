@@ -20,7 +20,7 @@ import net.portswigger.mcp.security.HttpRequestSecurity
 import java.security.MessageDigest
 import java.util.Locale
 
-internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
+internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, readOnlyMode: Boolean = false) {
     TrafficStore.ensureRegistered(api)
 
     fun requireAccess(type: DataAccessType) {
@@ -108,7 +108,7 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
         }.toString()
     }
 
-    mcpTool<SetOrganizerItemNotes>("Set notes on one Organizer item by native ID.", LOCAL_MUTATION_TOOL) {
+    if (!readOnlyMode) mcpTool<SetOrganizerItemNotes>("Set notes on one Organizer item by native ID.", LOCAL_MUTATION_TOOL) {
         require(notes.length <= 100_000) { "notes must not exceed 100000 characters" }
         requireAccess(DataAccessType.ORGANIZER)
         val item = api.organizer().items().firstOrNull { it.id() == id }
@@ -117,7 +117,7 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
         "Updated notes for Organizer item $id"
     }
 
-    mcpTool<SetOrganizerItemHighlight>(
+    if (!readOnlyMode) mcpTool<SetOrganizerItemHighlight>(
         "Set one Organizer item's highlight: RED, ORANGE, YELLOW, GREEN, CYAN, BLUE, PINK, MAGENTA, GRAY or NONE.",
         behavior = LOCAL_MUTATION_TOOL
     ) {
@@ -133,7 +133,7 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
         "Updated highlight for Organizer item $id to ${color.name}"
     }
 
-    mcpTool<SaveExchangeToOrganizer>(
+    if (!readOnlyMode) mcpTool<SaveExchangeToOrganizer>(
         "Save an already captured Proxy, Repeater or Intruder exchange to Organizer without sending target traffic. " +
             "source is PROXY or CAPTURED. Optional notes are attached to the saved copy.",
         behavior = LOCAL_MUTATION_TOOL
@@ -203,7 +203,7 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
         mutationPreview(sourceId, original, mutated, location, name, maxMessageChars).toString()
     }
 
-    mcpTool<SendMutatedRequest>(
+    if (!readOnlyMode) mcpTool<SendMutatedRequest>(
         "Send exactly one explicit mutation of a captured Proxy request. Always preview first. " +
             "Pass the preview's mutatedSha256 as expectedRequestSha256. This tool performs one request only, " +
             "with no batching or retries, and uses Burp's per-target approval.",
@@ -222,7 +222,7 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig) {
             HttpRequestSecurity.checkHttpRequestPermission(service.host(), service.port(), config, mutated.toString(), api)
         }
         if (!allowed) return@mcpTool "Send HTTP request denied by Burp Suite"
-        val result = api.http().sendRequest(mutated)
+        val result = OutboundRequestGate.withPermit { api.http().sendRequest(mutated) }
         val response = result.response()
         buildJsonObject {
             put("sourceId", sourceId)

@@ -8,6 +8,7 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.put
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.tools.HistoryMetadataIndex
+import net.portswigger.mcp.tools.OutboundRequestGate
 import net.portswigger.mcp.tools.ToolAuditLog
 import java.time.Instant
 
@@ -53,9 +54,12 @@ object RuntimeDiagnostics {
         put("requestApprovalRequired", config.requireHttpRequestApproval)
         put("dataAccessApprovalRequired", config.requireDataAccessApproval)
         put("toolProfile", config.toolProfile.name)
+        put("readOnlyMode", config.toolProfile == net.portswigger.mcp.config.ToolProfile.READ_ONLY)
+        put("maxConcurrentRequests", config.maxConcurrentRequests)
         put("toolCount", toolCount)
         put("toolSchemaChars", toolSchemaChars)
         put("historyIndex", HistoryMetadataIndex.metrics())
+        put("outboundRequests", OutboundRequestGate.metrics())
         putJsonArray("toolMetrics") {
             ToolAuditLog.metrics().forEach { add(Json.encodeToJsonElement(net.portswigger.mcp.tools.ToolMetricSummary.serializer(), it)) }
         }

@@ -1,6 +1,7 @@
 package net.portswigger.mcp.config
 
 enum class ToolProfile(val displayName: String, val description: String) {
+    READ_ONLY("Read-only investigation", "History, retrieval, comparison and diagnostics without tools that send traffic or mutate Burp data."),
     CORE("Core (recommended)", "Compact catalog with modern, non-redundant Burp workflows."),
     FULL("Full compatibility", "All tools, including legacy and overlapping compatibility tools.");
 

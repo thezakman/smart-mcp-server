@@ -5,6 +5,7 @@ import burp.api.montoya.logging.Logging
 import burp.api.montoya.persistence.PersistedObject
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import net.portswigger.mcp.config.McpConfig
@@ -30,6 +31,7 @@ class McpServerIntegrationTest {
         every { persistedObject.getBoolean(any()) } returns true
         every { persistedObject.getString(any()) } returns "127.0.0.1"
         every { persistedObject.getInteger("port") } returns testPort
+        every { persistedObject.getInteger("_maxConcurrentRequests") } returns 2
         every { persistedObject.setBoolean(any(), any()) } returns Unit
         every { persistedObject.setString(any(), any()) } returns Unit
         every { persistedObject.setInteger(any(), any()) } returns Unit
@@ -98,6 +100,8 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("get_mcp_diagnostics"), "Server should expose diagnostics")
             assertTrue(toolNames.contains("search_http_history"), "Core should expose structured history search")
             assertTrue(toolNames.contains("get_http_exchange"), "Core should expose bounded exchange detail")
+            assertTrue(toolNames.contains("get_proxy_http_history_summary"), "Core should expose history summary")
+            assertTrue(toolNames.contains("get_proxy_http_history_regex"), "Core should expose regex history search")
             assertFalse(toolNames.contains("url_encode"), "Core should hide legacy utility tools")
             assertTrue(tools.size in 25..35, "Core catalog should stay compact; got ${tools.size} tools")
 
@@ -120,6 +124,7 @@ class McpServerIntegrationTest {
                 tools.single { it.name == "search_http_history" }.annotations?.readOnlyHint,
                 "Read-only hints should remain available to MCP clients"
             )
+            verify(atLeast = 1) { api.proxy().history() }
             
             val pingResult = client.ping()
             assertNotNull(pingResult, "Ping should return a result")

@@ -12,6 +12,22 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AdvancedToolsTest {
+
+    @Test
+    fun `outbound request gate rejects excess concurrency`() {
+        OutboundRequestGate.configure(1)
+        try {
+            OutboundRequestGate.withPermit {
+                val error = assertThrows(ToolBusyException::class.java) {
+                    OutboundRequestGate.withPermit { error("permit should not be granted") }
+                }
+                assertTrue(error.message!!.contains("concurrency limit (1)"))
+            }
+            assertTrue(OutboundRequestGate.metrics().toString().contains("\"rejected\":1"))
+        } finally {
+            OutboundRequestGate.configure(2)
+        }
+    }
     @AfterEach
     fun cleanup() = ToolAuditLog.clear()
 

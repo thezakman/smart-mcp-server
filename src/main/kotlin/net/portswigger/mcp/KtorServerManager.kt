@@ -21,6 +21,7 @@ import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.tools.SERVER_INSTRUCTIONS
 import net.portswigger.mcp.tools.TrafficStore
 import net.portswigger.mcp.tools.HistoryMetadataIndex
+import net.portswigger.mcp.tools.OutboundRequestGate
 import net.portswigger.mcp.tools.registerHistoryResources
 import net.portswigger.mcp.tools.registerTools
 import java.net.URI
@@ -51,6 +52,15 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                             resources = ServerCapabilities.Resources(listChanged = false, subscribe = false)
                         )
                     ), instructions = SERVER_INSTRUCTIONS
+                )
+
+                OutboundRequestGate.configure(config.maxConcurrentRequests)
+                val warmupStarted = System.nanoTime()
+                val existingHistory = runCatching { api.proxy().history() }.getOrNull().orEmpty()
+                val indexedEntries = HistoryMetadataIndex.refresh(existingHistory).size
+                val warmupMillis = (System.nanoTime() - warmupStarted) / 1_000_000
+                api.logging().logToOutput(
+                    "Indexed $indexedEntries existing Proxy history entries in ${warmupMillis}ms"
                 )
 
                 mcpServer.registerTools(api, config)

@@ -111,12 +111,18 @@ private fun normalizePrelude(prelude: String): String = prelude
 
 fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     val fullCatalog = config.toolProfile == ToolProfile.FULL
+    val readOnlyCatalog = config.toolProfile == ToolProfile.READ_ONLY
     registerSmartHistoryTools(api, config)
-    if (fullCatalog) registerHistoryTriageTools(api, config)
-    registerFilteredHistoryTools(api, config, includeLegacyHttpSearch = fullCatalog)
-    registerAdvancedTools(api, config)
+    registerHistoryTriageTools(api, config)
+    registerFilteredHistoryTools(
+        api,
+        config,
+        includeLegacyHttpSearch = true,
+        readOnlyMode = readOnlyCatalog
+    )
+    registerAdvancedTools(api, config, readOnlyMode = readOnlyCatalog)
 
-    mcpTool<SendHttp1Request>("Issues an HTTP/1.1 request and returns the response.", BURP_GATED_TOOL) {
+    if (!readOnlyCatalog) mcpTool<SendHttp1Request>("Issues an HTTP/1.1 request and returns the response.", BURP_GATED_TOOL) {
         val allowed = runBlocking {
             HttpRequestSecurity.checkHttpRequestPermission(targetHostname, targetPort, config, content, api)
         }
@@ -130,12 +136,12 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         val fixedContent = normalizeHttpContent(content)
 
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
-        val response = api.http().sendRequest(request)
+        val response = OutboundRequestGate.withPermit { api.http().sendRequest(request) }
 
         response?.toString() ?: "<no response>"
     }
 
-    mcpTool<SendHttp2Request>("Issues an HTTP/2 request and returns the response. Do NOT pass headers to the body parameter.", BURP_GATED_TOOL) {
+    if (!readOnlyCatalog) mcpTool<SendHttp2Request>("Issues an HTTP/2 request and returns the response. Do NOT pass headers to the body parameter.", BURP_GATED_TOOL) {
         val http2RequestDisplay = buildString {
             pseudoHeaders.forEach { (key, value) ->
                 val headerName = if (key.startsWith(":")) key else ":$key"
@@ -163,7 +169,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
 
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
-        val response = api.http().sendRequest(request, HttpMode.HTTP_2)
+        val response = OutboundRequestGate.withPermit { api.http().sendRequest(request, HttpMode.HTTP_2) }
 
         response?.toString() ?: "<no response>"
     }
@@ -232,7 +238,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         }
     }
 
-    if (config.configEditingTooling) {
+    if (!readOnlyCatalog) {
         val toolingDisabledMessage =
             "User has disabled configuration editing. They can enable it in the MCP tab in Burp by selecting 'Enable tools that can edit your config'"
         mcpTool<SetProjectOptions>("Sets project-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'project_options' object.", BURP_GATED_TOOL) {
@@ -262,7 +268,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
 
         val collaboratorClient by lazy { api.collaborator().createClient() }
 
-        mcpTool<GenerateCollaboratorPayload>(
+        if (!readOnlyCatalog) mcpTool<GenerateCollaboratorPayload>(
             "Generates a Burp Collaborator payload URL for out-of-band (OOB) testing. " +
             "Inject this payload into requests to detect server-side interactions (DNS lookups, HTTP requests, SMTP). " +
             "Use get_collaborator_interactions with the returned payloadId to check for interactions.",

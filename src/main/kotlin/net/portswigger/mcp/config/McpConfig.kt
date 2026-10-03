@@ -50,6 +50,13 @@ class McpConfig(storage: PersistedObject, private val logging: Logging) {
 
     var filterConfigCredentials by storage.boolean(true)
 
+    private var _maxConcurrentRequests by storage.int(2)
+    var maxConcurrentRequests: Int
+        get() = _maxConcurrentRequests.takeIf { it in 1..16 } ?: 2
+        set(value) {
+            _maxConcurrentRequests = value.coerceIn(1, 16)
+        }
+
     private var _toolProfile by storage.string(ToolProfile.CORE.name)
     var toolProfile: ToolProfile
         get() = ToolProfile.parse(_toolProfile)

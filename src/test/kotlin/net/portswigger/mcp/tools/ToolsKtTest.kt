@@ -68,6 +68,7 @@ class ToolsKtTest {
             every { getString("_autoApproveTargets") } returns ""
             every { getString("_toolProfile") } returns "FULL"
             every { getInteger("port") } returns testPort
+            every { getInteger("_maxConcurrentRequests") } returns 2
             every { setBoolean(any(), any()) } returns Unit
             every { setString(any(), any()) } returns Unit
             every { setInteger(any(), any()) } returns Unit

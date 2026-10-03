@@ -113,7 +113,8 @@ class ServerConfigurationPanel(
             components = arrayOf(
                 filterConfigCredentialsCheckBox,
                 configEditingToolingCheckBox,
-                createToolProfileSelector()
+                createToolProfileSelector(),
+                createConcurrencySelector()
             )
         )
 
@@ -230,6 +231,27 @@ class ServerConfigurationPanel(
                 toolTipText = "Core reduces MCP context size. Full preserves every compatibility tool."
             }, BorderLayout.WEST)
             add(selector, BorderLayout.CENTER)
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }
+    }
+
+    private fun createConcurrencySelector(): JPanel {
+        val spinner = JSpinner(SpinnerNumberModel(config.maxConcurrentRequests, 1, 16, 1)).apply {
+            font = Design.Typography.bodyMedium
+            toolTipText = "Maximum simultaneous target-bound HTTP requests. Applies after server restart."
+            addChangeListener { config.maxConcurrentRequests = value as Int }
+            preferredSize = Dimension(96, preferredSize.height)
+            maximumSize = preferredSize
+        }
+        return JPanel(BorderLayout(Design.Spacing.SM, 0)).apply {
+            isOpaque = false
+            alignmentX = LEFT_ALIGNMENT
+            add(JLabel("Concurrent requests").apply {
+                font = Design.Typography.labelLarge
+                foreground = Design.Colors.onSurface
+                toolTipText = spinner.toolTipText
+            }, BorderLayout.WEST)
+            add(spinner, BorderLayout.EAST)
             maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
     }

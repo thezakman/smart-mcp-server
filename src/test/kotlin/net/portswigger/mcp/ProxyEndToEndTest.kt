@@ -44,6 +44,7 @@ class ProxyEndToEndTest {
         every { persistedObject.getString(any()) } returns "127.0.0.1"
         every { persistedObject.getString("_toolProfile") } returns "FULL"
         every { persistedObject.getInteger("port") } returns testPort
+        every { persistedObject.getInteger("_maxConcurrentRequests") } returns 2
         every { persistedObject.setBoolean(any(), any()) } returns Unit
         every { persistedObject.setString(any(), any()) } returns Unit
         every { persistedObject.setInteger(any(), any()) } returns Unit

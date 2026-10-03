@@ -17,7 +17,8 @@ import net.portswigger.mcp.security.HttpRequestSecurity
 internal fun Server.registerFilteredHistoryTools(
     api: MontoyaApi,
     config: McpConfig,
-    includeLegacyHttpSearch: Boolean = true
+    includeLegacyHttpSearch: Boolean = true,
+    readOnlyMode: Boolean = false
 ) {
     fun requireAccess(type: DataAccessType) {
         check(runBlocking { DataAccessSecurity.checkDataAccessPermission(type, config) }) {
@@ -99,7 +100,7 @@ internal fun Server.registerFilteredHistoryTools(
         }.toString()
     }
 
-    mcpTool<CreateRepeaterTabFromHistory>(
+    if (!readOnlyMode) mcpTool<CreateRepeaterTabFromHistory>(
         "Open a captured request in Burp Repeater by its native Proxy history # ID. " +
             "The original Montoya request is reused, preserving its service and HTTP protocol. " +
             "This creates a local Repeater tab and does not send the request.",
@@ -114,7 +115,7 @@ internal fun Server.registerFilteredHistoryTools(
         "Opened Burp history item #$index in Repeater${tabName?.let { " as '$it'" }.orEmpty()}"
     }
 
-    mcpTool<SendHistoryItemToIntruder>(
+    if (!readOnlyMode) mcpTool<SendHistoryItemToIntruder>(
         "Open a captured request in Burp Intruder by its native Proxy history # ID. " +
             "The original Montoya request is reused, preserving its service and HTTP protocol. " +
             "This creates a local Intruder tab and does not start an attack.",
@@ -129,7 +130,7 @@ internal fun Server.registerFilteredHistoryTools(
         "Opened Burp history item #$index in Intruder${tabName?.let { " as '$it'" }.orEmpty()}; attack not started"
     }
 
-    mcpTool<ReplayHistoryItem>(
+    if (!readOnlyMode) mcpTool<ReplayHistoryItem>(
         "Replay one captured request by its native Burp # ID without changing it. Uses the original Montoya " +
             "request, preserving service and HTTP protocol, and passes through Burp MCP's existing per-target " +
             "request approval. No payload injection, batching or automatic retries. Returns a bounded response " +
@@ -148,7 +149,7 @@ internal fun Server.registerFilteredHistoryTools(
             )
         }
         if (!allowed) return@mcpTool "Send HTTP request denied by Burp Suite"
-        val result = api.http().sendRequest(request)
+        val result = OutboundRequestGate.withPermit { api.http().sendRequest(request) }
         val response = result.response()
         buildJsonObject {
             put("sourceId", index)
