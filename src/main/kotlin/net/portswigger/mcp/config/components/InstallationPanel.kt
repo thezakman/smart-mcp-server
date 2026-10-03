@@ -130,7 +130,7 @@ class InstallationPanel(
     }
 
     private fun createManualInstallPanel(): JPanel {
-        return JPanel(FlowLayout(FlowLayout.LEFT, Design.Spacing.SM, 0)).apply {
+        return JPanel(FlowLayout(FlowLayout.CENTER, Design.Spacing.SM, 0)).apply {
             alignmentX = LEFT_ALIGNMENT
             isOpaque = false
             add(
