@@ -7,18 +7,21 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.encodeToString
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.schema.ToolField
 import net.portswigger.mcp.security.DataAccessSecurity
 import net.portswigger.mcp.security.DataAccessType
 import java.net.URI
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.Base64
 import java.util.Locale
 
@@ -41,7 +44,8 @@ internal fun Server.registerSmartHistoryTools(api: MontoyaApi, config: McpConfig
 
     mcpTool<SearchHttpHistory>(
         "Search the Burp Proxy HTTP history with structured filters. Returns compact projected metadata only, " +
-            "with a stable cursor and a total output budget. Use get_http_exchange to fetch selected raw content.",
+            "including host, path, status, header, Trace ID and parsed JSON filters, with a filter-bound stable " +
+            "keyset cursor and total output budget. Use get_http_exchange to fetch selected raw content.",
         behavior = READ_ONLY_TOOL
     ) {
         withHistorySearchPermit {
@@ -53,6 +57,10 @@ internal fun Server.registerSmartHistoryTools(api: MontoyaApi, config: McpConfig
             require(unknownFields.isEmpty()) { "Unknown fields: ${unknownFields.joinToString()}. Valid fields: ${HISTORY_FIELDS.sorted().joinToString()}" }
 
             val pageCursor = cursor?.let(::decodeHistoryCursor)
+            val queryHash = historyQueryHash(this)
+            require(pageCursor?.queryHash == null || pageCursor.queryHash == queryHash) {
+                "History cursor does not match the current filters, projection or sort"
+            }
             val requestedOffset = pageCursor?.offset ?: offset
             val selectedColors = parseHistoryColors(colors)
             val matcher = regex?.takeIf(String::isNotBlank)?.let(::HistoryRegex)
@@ -70,7 +78,10 @@ internal fun Server.registerSmartHistoryTools(api: MontoyaApi, config: McpConfig
                     (statusCodes.isEmpty() || entry.statusCode in statusCodes) &&
                     (normalizedMimeTypes.isEmpty() || entry.mimeType in normalizedMimeTypes) &&
                     (hasResponse == null || entry.hasResponse == hasResponse) &&
-                    (hasParameters == null || entry.hasParameters == hasParameters)
+                    (hasParameters == null || entry.hasParameters == hasParameters) &&
+                    (headerName.isNullOrBlank() || entry.headerNames.any { it.equals(headerName, ignoreCase = true) }) &&
+                    (headerValueContains.isNullOrBlank() || entry.headerValues.contains(headerValueContains, ignoreCase = true)) &&
+                    (traceId.isNullOrBlank() || entry.traceIds.any { it.contains(traceId, ignoreCase = true) })
             }
 
             if (inScopeOnly) sequence = sequence.filter { api.scope().isInScope(it.url) }
@@ -81,23 +92,36 @@ internal fun Server.registerSmartHistoryTools(api: MontoyaApi, config: McpConfig
                 val matchingIds = filterHttpHistory(api, snapshot.map { it.item }, false, matcher).map { it.id() }.toSet()
                 snapshot = snapshot.filter { it.id in matchingIds }
             }
-            snapshot = when (sort.uppercase(Locale.ROOT)) {
+            if (!jsonKey.isNullOrBlank() || !jsonContains.isNullOrBlank()) {
+                snapshot = snapshot.filter { matchesJsonContent(it.item, jsonKey, jsonContains) }
+            }
+            val normalizedSort = sort.uppercase(Locale.ROOT)
+            snapshot = when (normalizedSort) {
                 "NEWEST" -> snapshot.sortedByDescending { it.id }
                 "OLDEST" -> snapshot.sortedBy { it.id }
-                "SLOWEST" -> snapshot.sortedByDescending { it.responseStartMillis ?: -1 }
-                "LARGEST_RESPONSE" -> snapshot.sortedByDescending { it.responseBytes }
+                "SLOWEST" -> snapshot.sortedWith(compareByDescending<IndexedHttpHistory> {
+                    it.responseStartMillis ?: -1
+                }.thenByDescending { it.id })
+                "LARGEST_RESPONSE" -> snapshot.sortedWith(compareByDescending<IndexedHttpHistory> {
+                    it.responseBytes.toLong()
+                }.thenByDescending { it.id })
                 else -> throw IllegalArgumentException("sort must be NEWEST, OLDEST, SLOWEST or LARGEST_RESPONSE")
             }
 
-            val candidates = snapshot.asSequence().drop(requestedOffset).take(count).map { entry ->
-                projectHistorySummary(smartHistorySummary(entry.item), fields.toSet(), omitNulls)
+            val pageSequence = pageCursor?.lastId?.let { lastId ->
+                snapshot.asSequence().filter { isAfterHistoryCursor(it, lastId, pageCursor.lastMetric, normalizedSort) }
+            } ?: snapshot.asSequence().drop(requestedOffset)
+            val candidates = pageSequence.take(count).map { entry ->
+                HistorySearchCandidate(entry, projectHistorySummary(smartHistorySummary(entry.item), fields.toSet(), omitNulls))
             }.toList()
             buildBudgetedSearchPage(
                 total = snapshot.size,
                 offset = requestedOffset,
                 snapshotMaxId = snapshotMaxId,
                 candidates = candidates,
-                maxOutputChars = maxOutputChars
+                maxOutputChars = maxOutputChars,
+                sort = normalizedSort,
+                queryHash = queryHash
             ).toString()
         }
     }
@@ -171,6 +195,16 @@ data class SearchHttpHistory(
     val hasResponse: Boolean? = null,
     @ToolField("Require at least one parsed request parameter when true.")
     val hasParameters: Boolean? = null,
+    @ToolField("Header name matched case-insensitively across request and response headers.")
+    val headerName: String? = null,
+    @ToolField("Case-insensitive substring matched across request and response header values.")
+    val headerValueContains: String? = null,
+    @ToolField("Case-insensitive Trace ID substring matched in trace, correlation and request ID headers.")
+    val traceId: String? = null,
+    @ToolField("JSON key or dotted key path required in a request or response body.", example = "data.user.id")
+    val jsonKey: String? = null,
+    @ToolField("Case-insensitive substring required in a parsed JSON request or response body.")
+    val jsonContains: String? = null,
     @ToolField("Optional bounded regex over URL, request, response and notes.")
     val regex: String? = null,
     @ToolField("Result ordering.", enumValues = ["NEWEST", "OLDEST", "SLOWEST", "LARGEST_RESPONSE"])
@@ -199,7 +233,14 @@ data class GetHttpExchange(
     val omitNulls: Boolean = true
 )
 
-private data class HistoryPageCursor(val snapshotMaxId: Int?, val offset: Int)
+private data class HistoryPageCursor(
+    val snapshotMaxId: Int?,
+    val offset: Int,
+    val lastId: Int? = null,
+    val lastMetric: Long? = null,
+    val sort: String? = null,
+    val queryHash: String? = null
+)
 
 internal fun encodeHistoryCursor(snapshotMaxId: Int?, offset: Int): String {
     val raw = "v1:${snapshotMaxId ?: -1}:$offset"
@@ -213,11 +254,26 @@ private fun decodeHistoryCursor(encoded: String): HistoryPageCursor {
         throw IllegalArgumentException("Invalid history cursor")
     }
     val parts = raw.split(':')
+    if (parts.size == 7 && parts[0] == "v2") {
+        val snapshot = parts[1].toIntOrNull() ?: throw IllegalArgumentException("Invalid history cursor")
+        val offset = parts[2].toIntOrNull() ?: throw IllegalArgumentException("Invalid history cursor")
+        val lastId = parts[3].toIntOrNull() ?: throw IllegalArgumentException("Invalid history cursor")
+        val metric = parts[4].toLongOrNull() ?: throw IllegalArgumentException("Invalid history cursor")
+        require(snapshot >= -1 && offset >= 0) { "Invalid history cursor" }
+        return HistoryPageCursor(snapshot.takeIf { it >= 0 }, offset, lastId, metric, parts[5], parts[6])
+    }
     require(parts.size == 3 && parts[0] == "v1") { "Invalid history cursor" }
     val snapshot = parts[1].toIntOrNull() ?: throw IllegalArgumentException("Invalid history cursor")
     val offset = parts[2].toIntOrNull() ?: throw IllegalArgumentException("Invalid history cursor")
     require(snapshot >= -1 && offset >= 0) { "Invalid history cursor" }
     return HistoryPageCursor(snapshot.takeIf { it >= 0 }, offset)
+}
+
+private fun encodeStableHistoryCursor(
+    snapshotMaxId: Int?, offset: Int, last: IndexedHttpHistory, sort: String, queryHash: String
+): String {
+    val raw = "v2:${snapshotMaxId ?: -1}:$offset:${last.id}:${historySortMetric(last, sort)}:$sort:$queryHash"
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.toByteArray(StandardCharsets.UTF_8))
 }
 
 private fun smartHistorySummary(item: ProxyHttpRequestResponse): JsonObject {
@@ -232,17 +288,22 @@ private fun smartHistorySummary(item: ProxyHttpRequestResponse): JsonObject {
 internal fun projectHistorySummary(summary: JsonObject, fields: Set<String>, omitNulls: Boolean): JsonObject =
     JsonObject(summary.filter { (name, value) -> name in fields && (!omitNulls || value !is JsonNull) })
 
+private data class HistorySearchCandidate(val entry: IndexedHttpHistory, val json: JsonObject)
+
 private fun buildBudgetedSearchPage(
     total: Int,
     offset: Int,
     snapshotMaxId: Int?,
-    candidates: List<JsonObject>,
-    maxOutputChars: Int
+    candidates: List<HistorySearchCandidate>,
+    maxOutputChars: Int,
+    sort: String,
+    queryHash: String
 ): JsonObject {
-    val accepted = mutableListOf<JsonObject>()
+    val accepted = mutableListOf<HistorySearchCandidate>()
     for (candidate in candidates) {
         val trial = searchPageJson(
-            total, offset, snapshotMaxId, accepted + candidate, hasMore = true, truncatedByBudget = false
+            total, offset, snapshotMaxId, accepted + candidate, hasMore = true,
+            truncatedByBudget = false, sort = sort, queryHash = queryHash
         )
         if (trial.toString().length > maxOutputChars) break
         accepted += candidate
@@ -255,7 +316,9 @@ private fun buildBudgetedSearchPage(
         snapshotMaxId,
         accepted,
         hasMore,
-        truncatedByBudget = accepted.size < candidates.size
+        truncatedByBudget = accepted.size < candidates.size,
+        sort = sort,
+        queryHash = queryHash
     )
     check(result.toString().length <= maxOutputChars) { "maxOutputChars is too small for search metadata" }
     return result
@@ -265,17 +328,77 @@ private fun searchPageJson(
     total: Int,
     offset: Int,
     snapshotMaxId: Int?,
-    items: List<JsonObject>,
+    items: List<HistorySearchCandidate>,
     hasMore: Boolean,
-    truncatedByBudget: Boolean
+    truncatedByBudget: Boolean,
+    sort: String,
+    queryHash: String
 ): JsonObject = buildJsonObject {
     put("total", total)
     put("offset", offset)
     put("returned", items.size)
     put("snapshotMaxId", snapshotMaxId?.let(::JsonPrimitive) ?: JsonNull)
-    put("nextCursor", if (hasMore) JsonPrimitive(encodeHistoryCursor(snapshotMaxId, offset + items.size)) else JsonNull)
+    put("nextCursor", if (hasMore && items.isNotEmpty()) JsonPrimitive(
+        encodeStableHistoryCursor(snapshotMaxId, offset + items.size, items.last().entry, sort, queryHash)
+    ) else JsonNull)
     put("truncatedByBudget", truncatedByBudget)
-    put("items", JsonArray(items))
+    put("items", JsonArray(items.map { it.json }))
+}
+
+private fun historySortMetric(entry: IndexedHttpHistory, sort: String): Long = when (sort) {
+    "SLOWEST" -> entry.responseStartMillis ?: -1L
+    "LARGEST_RESPONSE" -> entry.responseBytes.toLong()
+    else -> entry.id.toLong()
+}
+
+internal fun isAfterHistoryCursor(
+    entry: IndexedHttpHistory, lastId: Int, lastMetric: Long?, sort: String
+): Boolean = when (sort) {
+    "NEWEST" -> entry.id < lastId
+    "OLDEST" -> entry.id > lastId
+    "SLOWEST", "LARGEST_RESPONSE" -> {
+        val metric = historySortMetric(entry, sort)
+        val boundary = lastMetric ?: Long.MIN_VALUE
+        metric < boundary || (metric == boundary && entry.id < lastId)
+    }
+    else -> false
+}
+
+private fun historyQueryHash(args: SearchHttpHistory): String {
+    val canonical = Json.encodeToString(
+        args.copy(count = 0, offset = 0, cursor = null, maxOutputChars = 0)
+    )
+    return MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8))
+        .take(10).joinToString("") { "%02x".format(it) }
+}
+
+internal fun matchesJsonContent(
+    item: ProxyHttpRequestResponse, requiredKey: String?, requiredContent: String?
+): Boolean {
+    val bodies = listOfNotNull(
+        safeSmart { item.finalRequest().bodyToString() },
+        safeSmart { item.response()?.bodyToString() }
+    )
+    return bodies.any { raw ->
+        val root = safeSmart { Json.parseToJsonElement(raw) } ?: return@any false
+        val paths = linkedSetOf<String>()
+        fun visit(element: JsonElement, path: String, depth: Int) {
+            if (depth > 30 || paths.size >= 10_000) return
+            when (element) {
+                is JsonObject -> element.forEach { (key, value) ->
+                    val next = if (path.isEmpty()) key else "$path.$key"
+                    paths += next
+                    visit(value, next, depth + 1)
+                }
+                is JsonArray -> element.take(100).forEach { visit(it, "$path[]", depth + 1) }
+                else -> Unit
+            }
+        }
+        visit(root, "", 0)
+        (requiredKey.isNullOrBlank() || paths.any {
+            it.equals(requiredKey, ignoreCase = true) || it.substringAfterLast('.').equals(requiredKey, ignoreCase = true)
+        }) && (requiredContent.isNullOrBlank() || root.toString().contains(requiredContent, ignoreCase = true))
+    }
 }
 
 private fun buildBudgetedExchange(

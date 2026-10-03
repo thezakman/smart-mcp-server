@@ -22,7 +22,7 @@ fork point; the upstream project may continue to evolve independently.
 | Area | PortSwigger original at the fork point | Smart Burp MCP Server |
 | --- | --- | --- |
 | Client setup | Claude Desktop installer and manual stdio proxy extraction | Keeps both, adds shell-safe **Claude CLI**, and connects **Codex CLI directly over Streamable HTTP** without launching the proxy |
-| Proxy history | Full request/response pagination and basic regex search | Adds compact summaries, native Burp IDs, highlight colors, timing, MIME/size metadata, scope/static filters, bounded regex work and snapshot-aware pagination |
+| Proxy history | Full request/response pagination and basic regex search | Adds compact summaries, native Burp IDs, highlight colors, timing, MIME/size metadata, host/path/status/header/Trace ID/JSON filters, bounded regex work and stable keyset pagination |
 | Message detail | Bulk entries with a fixed output limit | Fetches selected HTTP and WebSocket messages by native ID with Unicode-safe chunks and explicit continuation offsets |
 | Sensitive traffic | Captured messages returned by the original bulk tools | Keeps raw cookies, tokens and credentials intact by default; optional masking is explicit and tool-specific |
 | Site Map | No compact Site Map MCP workflow | Adds filtered compact indexing and content-derived SHA-256 keys with selective detail retrieval |
@@ -65,7 +65,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Native Burp IDs and content-derived Site Map keys for traceable evidence retrieval
 - Bounded request/response chunks with credentials, cookies and tokens intact by default
 - Persistent in-session exchange IDs for direct MCP sends, with chunked retrieval and Organizer handoff
-- Color, regex, scope, static-resource, host, method, status and MIME filters
+- Color, regex, scope, static-resource, host, path, method, status, MIME, header, Trace ID and JSON-content filters
 - Repeater and Intruder capture after extension load, with bounded in-memory buffers
 - Read-only response comparison and JSON-key/header difference analysis
 - Three-control authorization comparison for anonymous, invalid-token and valid-token evidence
@@ -73,7 +73,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - MCP runtime diagnostics, initialize instructions and metadata-only action audit log
 - Theme-aware Burp UI, including restrained alternating rows in dark and light themes
 - Read-only investigation, Core and Full compatibility tool profiles to control MCP catalog size and capabilities
-- Structured Proxy-history search with stable cursors, field projection and a total response budget
+- Structured Proxy-history search with filter-bound keyset cursors, field projection and a total response budget
 - Automatic startup indexing of existing Proxy history plus incremental refreshes
 - Configurable concurrency limit for outbound HTTP requests and bounded concurrent history searches
 - Full raw HTTP messages exposed as on-demand MCP resources (`burp://proxy/{id}/{part}`)

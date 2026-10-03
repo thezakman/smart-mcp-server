@@ -22,7 +22,10 @@ internal data class IndexedHttpHistory(
     val hasParameters: Boolean,
     val requestBytes: Int,
     val responseBytes: Int,
-    val responseStartMillis: Long?
+    val responseStartMillis: Long?,
+    val headerNames: Set<String>,
+    val headerValues: String,
+    val traceIds: Set<String>
 )
 
 /** Caches metadata extraction while always retaining the newest Montoya wrapper for each native ID. */
@@ -77,6 +80,19 @@ internal object HistoryMetadataIndex {
         val request = item.finalRequest()
         val response = item.response()
         val url = safeIndex { request.url() }.orEmpty()
+        val headers = safeIndex { request.headers() }.orEmpty() + safeIndex { response?.headers() }.orEmpty()
+        val headerNames = headers.mapNotNull { safeIndex { it.name().lowercase(Locale.ROOT) } }.toSet()
+        val headerValues = headers.asSequence().mapNotNull { header ->
+            safeIndex { "${header.name().lowercase(Locale.ROOT)}: ${header.value()}" }
+        }.joinToString("\n").take(65_536)
+        val traceIds = headers.asSequence().mapNotNull { header ->
+            val name = safeIndex { header.name().lowercase(Locale.ROOT) } ?: return@mapNotNull null
+            if (name == "traceparent" || name == "tracestate" || name == "x-request-id" ||
+                name == "x-correlation-id" || name == "x-trace-id" || name == "request-id" ||
+                name.contains("trace") || name.contains("correlation")) {
+                safeIndex { header.value() }?.take(1024)
+            } else null
+        }.toSet()
         return IndexedHttpHistory(
             id = item.id(),
             item = item,
@@ -93,7 +109,10 @@ internal object HistoryMetadataIndex {
             responseBytes = safeIndex { response?.toByteArray()?.length() } ?: 0,
             responseStartMillis = safeIndex {
                 item.timingData()?.timeBetweenRequestSentAndStartOfResponse()?.toMillis()
-            }
+            },
+            headerNames = headerNames,
+            headerValues = headerValues,
+            traceIds = traceIds
         )
     }
 }
