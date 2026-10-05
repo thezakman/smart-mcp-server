@@ -180,6 +180,12 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
                     text = "Learn more about the Model Context Protocol",
                     url = "https://modelcontextprotocol.io/introduction"
                 ).apply { alignmentX = CENTER_ALIGNMENT })
+            add(createVerticalStrut(Design.Spacing.SM))
+            add(JLabel(extensionVersionLabel()).apply {
+                font = Design.Typography.labelMedium
+                foreground = Design.Colors.onSurfaceVariant
+                alignmentX = CENTER_ALIGNMENT
+            })
         }
 
         leftPanel.add(JPanel(GridBagLayout()).apply {
@@ -235,5 +241,10 @@ class ConfigUi(private val config: McpConfig, private val providers: List<Provid
             alignmentX = CENTER_ALIGNMENT
             accessibleContext.accessibleName = "MCP logo"
         }
+    }
+
+    private fun extensionVersionLabel(): String {
+        val version = ConfigUi::class.java.`package`.implementationVersion
+        return version?.takeIf { it.isNotBlank() }?.let { "Version $it" } ?: "Development build"
     }
 }
