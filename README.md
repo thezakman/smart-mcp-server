@@ -95,7 +95,8 @@ request at a time. It deliberately does not include an automatic payload batch, 
 Ensure that the following prerequisites are met before building and installing the extension:
 
 1. **Java**: Java must be installed and available in your system's PATH. You can verify this by running `java --version` in your terminal.
-2. **Build dependencies**: The first Gradle build needs access to the Gradle distribution and Maven repositories. Packaging embeds the proxy JAR through Gradle and does not require an external `jar` command.
+2. **Burp Suite**: Use a Burp Suite release compatible with Montoya API 2026.7.
+3. **Build dependencies**: The first Gradle build needs access to the Gradle distribution and Maven repositories. Packaging embeds the proxy JAR through Gradle and does not require an external `jar` command.
 
 ### Building the Extension
 
