@@ -4,11 +4,21 @@
 
 <h1 align="center">Smart Burp MCP Server</h1>
 
+<p align="center">
+  <strong>Extension 1.11.2</strong> &nbsp;·&nbsp;
+  <strong>Montoya API 2026.7 — latest official release</strong>
+</p>
+
 ## Overview
 
 Connect Burp Suite to Codex CLI, Claude CLI, Claude Desktop and other MCP clients. This fork extends PortSwigger's
 MCP server with compact evidence indexes, native Burp IDs, Repeater/Intruder capture, Organizer workflows,
 response comparison, diagnostics and reviewed single-request mutations.
+
+The extension is built against
+[Montoya API 2026.7](https://github.com/PortSwigger/burp-extensions-montoya-api/releases/tag/2026.7), the latest
+official Montoya release published by PortSwigger. The Montoya version and the extension version are independent:
+Montoya identifies the Burp API compatibility level, while `1.11.2` identifies this Smart Burp MCP release.
 
 For more information about the protocol visit: [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 
@@ -26,7 +36,7 @@ fork point; the upstream project may continue to evolve independently.
 | Message detail | Bulk entries with a fixed output limit | Fetches selected HTTP and WebSocket messages by native ID with Unicode-safe chunks and explicit continuation offsets |
 | Sensitive traffic | Captured messages returned by the original bulk tools | Keeps raw cookies, tokens and credentials intact by default; optional masking is explicit and tool-specific |
 | Site Map | No compact Site Map MCP workflow | Adds filtered compact indexing and content-derived SHA-256 keys with selective detail retrieval |
-| Organizer | Bulk read and regex search | Adds compact index/detail, native IDs, notes, highlight updates and saving existing captured exchanges with note and color without target traffic |
+| Organizer | Bulk read and regex search | Adds compact index/detail, native IDs, notes, highlight updates and saving existing captured exchanges with note and color without target traffic; Organizer Collections remain unavailable because Montoya does not expose their names or membership |
 | Repeater and Intruder | Can create tabs from supplied MCP content | Also opens exact Proxy-history requests by ID and captures subsequent Repeater/Intruder exchanges in bounded memory buffers |
 | Response analysis | Caller compares raw results manually | Adds read-only pairwise comparison plus anonymous vs invalid-token vs valid-token control comparison |
 | Request changes | Caller constructs and sends a complete request | Adds previewed single-request mutation for method, path, header, body and common parameter types; send requires the preview SHA-256 and target approval |
@@ -95,7 +105,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 Ensure that the following prerequisites are met before building and installing the extension:
 
 1. **Java**: Java must be installed and available in your system's PATH. You can verify this by running `java --version` in your terminal.
-2. **Burp Suite**: Use a Burp Suite release compatible with Montoya API 2026.7.
+2. **Burp Suite**: Use a Burp Suite release compatible with **Montoya API 2026.7**, the latest official Montoya API release used by this project.
 3. **Build dependencies**: The first Gradle build needs access to the Gradle distribution and Maven repositories. Packaging embeds the proxy JAR through Gradle and does not require an external `jar` command.
 
 ### Building the Extension
@@ -267,6 +277,10 @@ The default **Core** profile exposes the modern tools used for compact discovery
 analysis and reviewed sends. Select **Full compatibility** in Burp to additionally expose the overlapping legacy
 history tools, raw tab constructors, editor controls and encoding utilities.
 
+With Burp Suite Professional, version 1.11.2 exposes **37 tools** in the default Core profile. Scanner and
+Collaborator account for the Professional-only entries, so the exact count can differ by Burp edition and selected
+tool profile. `get_mcp_diagnostics` reports the active profile, tool count and complete schema size at runtime.
+
 ### Requests, Burp tabs and utilities
 
 | Tool | Purpose |
@@ -317,7 +331,8 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 | `replay_history_item` | Replay one captured request unchanged with the existing per-target approval | One request; no injection, batching or retries |
 | `list_site_map` | Compact Site Map inventory with filters and content-derived keys | 50 entries; no bodies |
 | `get_site_map_items_by_key` | Retrieve selected Site Map exchanges by key | Original content in bounded chunks |
-| `list_organizer_items` / `get_organizer_items_by_id` | Compact Organizer index followed by selected details | Native Organizer IDs |
+| `list_organizer_items` / `get_organizer_items_by_id` | Compact Organizer index followed by selected details | Native Organizer IDs; Collections are not exposed by Montoya |
+| `set_organizer_item_notes` / `set_organizer_item_highlight` | Update the note or color of one Organizer item by native ID | Local project mutation; no target traffic |
 | `save_exchange_to_organizer` | Save an existing Proxy/Repeater/Intruder exchange | No target traffic |
 | `get_repeater_traffic` / `get_intruder_traffic` | Index traffic observed after extension load | In-memory buffers; 1,000 per tool |
 | `get_captured_exchange_by_id` | Retrieve a captured Repeater/Intruder exchange | Original content in bounded chunks |
@@ -423,6 +438,9 @@ rewriting. `build`, `shadowJar` and the compatible `embedProxyJar` entry point a
 
 ### Current limitations
 
+- Montoya API 2026.7 exposes Organizer items but does not expose Organizer Collection names, membership, creation or
+  movement between Collections. The MCP can list and retrieve items, update notes and colors, and save captured
+  exchanges to Organizer, but it cannot identify or manage a Collection such as `Honda`.
 - Montoya cannot read Repeater tabs or Intruder attacks that occurred before this extension registered its HTTP handler.
 - Site Map entries do not expose a native Montoya ID, so `list_site_map` returns a SHA-256 lookup key derived from
   the request and service.
