@@ -5,7 +5,7 @@
 <h1 align="center">Smart Burp MCP Server</h1>
 
 <p align="center">
-  <strong>Extension 1.11.2</strong> &nbsp;·&nbsp;
+  <strong>Extension 1.11.3</strong> &nbsp;·&nbsp;
   <strong>Montoya API 2026.7 — latest official release</strong>
 </p>
 
@@ -15,10 +15,16 @@ Connect Burp Suite to Codex CLI, Claude CLI, Claude Desktop and other MCP client
 MCP server with compact evidence indexes, native Burp IDs, Repeater/Intruder capture, Organizer workflows,
 response comparison, diagnostics and reviewed single-request mutations.
 
+<p align="center">
+  <img src="docs/smart-burp-mcp-ui.png" alt="Smart Burp MCP Server interface in Burp Suite" width="1200">
+</p>
+
+<p align="center"><sub>Compact, responsive controls for approvals, tool profiles, concurrency, target allowlists and client installation.</sub></p>
+
 The extension is built against
 [Montoya API 2026.7](https://github.com/PortSwigger/burp-extensions-montoya-api/releases/tag/2026.7), the latest
 official Montoya release published by PortSwigger. The Montoya version and the extension version are independent:
-Montoya identifies the Burp API compatibility level, while `1.11.2` identifies this Smart Burp MCP release.
+Montoya identifies the Burp API compatibility level, while `1.11.3` identifies this Smart Burp MCP release.
 
 For more information about the protocol visit: [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 
@@ -277,7 +283,7 @@ The default **Core** profile exposes the modern tools used for compact discovery
 analysis and reviewed sends. Select **Full compatibility** in Burp to additionally expose the overlapping legacy
 history tools, raw tab constructors, editor controls and encoding utilities.
 
-With Burp Suite Professional, version 1.11.2 exposes **37 tools** in the default Core profile. Scanner and
+With Burp Suite Professional, version 1.11.3 exposes **37 tools** in the default Core profile. Scanner and
 Collaborator account for the Professional-only entries, so the exact count can differ by Burp edition and selected
 tool profile. `get_mcp_diagnostics` reports the active profile, tool count and complete schema size at runtime.
 
