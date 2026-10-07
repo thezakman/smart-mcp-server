@@ -10,12 +10,37 @@ import io.mockk.mockk
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Test
 
 class RepeaterEditorObserverTest {
     @AfterEach
     fun cleanup() {
         RepeaterEditorObserver.shutdown()
+    }
+
+    @Test
+    fun `message serialization never holds the observer index lock`() {
+        val raw = "GET /lock-check HTTP/1.1\r\nHost: example.test\r\n\r\n"
+        val exchange = exchange(raw, "body")
+        every { exchange.request().toString() } answers {
+            assertFalse(Thread.holdsLock(RepeaterEditorObserver))
+            raw
+        }
+        every { exchange.response().toString() } answers {
+            assertFalse(Thread.holdsLock(RepeaterEditorObserver))
+            "HTTP/1.1 200 OK\r\n\r\nbody"
+        }
+        RepeaterEditorObserver.observeForTest(
+            exchange, RepeaterTabAssociation("tab-lock", "LOCK", source = "TEST", confidence = "EXACT")
+        )
+        val unseen = exchange(raw, "body")
+        every { unseen.request().toString() } answers {
+            assertFalse(Thread.holdsLock(RepeaterEditorObserver))
+            raw
+        }
+        assertEquals("PROBABLE", RepeaterEditorObserver.resolve(unseen.request())?.confidence)
+        assertEquals(1, RepeaterEditorObserver.history("tab-lock", null, true).size)
     }
 
     @Test

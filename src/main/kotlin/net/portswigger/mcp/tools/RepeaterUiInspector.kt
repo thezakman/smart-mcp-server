@@ -7,8 +7,10 @@ import java.awt.Container
 import java.awt.Frame
 import java.awt.KeyboardFocusManager
 import java.awt.Window
-import java.lang.reflect.InvocationTargetException
 import java.util.IdentityHashMap
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.AbstractButton
 import javax.swing.JComponent
@@ -108,9 +110,15 @@ internal object RepeaterUiInspector {
     }
 
     /** Returns the live selected tab without treating a background binding walk as evidence for a user send. */
-    fun selectedTab(api: MontoyaApi): Selection = onEventDispatchThread {
+    fun selectedTab(api: MontoyaApi): Selection {
+        // Burp may call extension handlers while holding editor locks. Never wait for the EDT from a callback.
+        if (!SwingUtilities.isEventDispatchThread()) return Selection()
+        return selectedTabOnEdt(api)
+    }
+
+    private fun selectedTabOnEdt(api: MontoyaApi): Selection {
         val panes = locatePanes(api)
-        if (panes.isEmpty()) return@onEventDispatchThread Selection()
+        if (panes.isEmpty()) return Selection()
         val activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
         val activePanes = panes.filter { located ->
             activeWindow != null &&
@@ -119,7 +127,7 @@ internal object RepeaterUiInspector {
         val candidates = (activePanes.ifEmpty { panes.takeIf { it.size == 1 }.orEmpty() })
             .mapNotNull { located -> tabsFor(located).firstOrNull { it.selected } }
 
-        when (candidates.size) {
+        return when (candidates.size) {
             0 -> Selection()
             1 -> Selection(
                 tab = candidates.single(),
@@ -136,15 +144,18 @@ internal object RepeaterUiInspector {
     }
 
     /** Editor callbacks fired by the controlled walk have exact pane/index context. */
-    fun editorBindingSelection(api: MontoyaApi): Selection = onEventDispatchThread {
+    fun editorBindingSelection(api: MontoyaApi): Selection {
+        // A worker callback cannot prove which tab owns the message from the current UI selection.
+        // In particular, it must not invokeAndWait while Burp holds a lock required by the EDT.
+        if (!SwingUtilities.isEventDispatchThread()) return Selection()
         walkSelection?.let {
-            return@onEventDispatchThread Selection(
+            return Selection(
                 tab = it,
                 source = "BURP_SWING_WALK_SELECTION",
                 confidence = "EXACT"
             )
         }
-        selectedTab(api)
+        return selectedTabOnEdt(api)
     }
 
     /**
@@ -196,7 +207,12 @@ internal object RepeaterUiInspector {
         )
     }
 
-    internal fun clear() = onEventDispatchThread {
+    internal fun clear() {
+        // Unload callbacks can also run under Burp locks. Cleanup must not wait for the UI.
+        if (SwingUtilities.isEventDispatchThread()) clearOnEdt() else SwingUtilities.invokeLater { clearOnEdt() }
+    }
+
+    private fun clearOnEdt() {
         activeWalk?.finish()
         synchronized(componentIds) {
             activeWalk = null
@@ -375,14 +391,21 @@ internal object RepeaterUiInspector {
         }
     }
 
-    private fun <T> onEventDispatchThread(block: () -> T): T {
+    internal fun <T> onEventDispatchThread(timeoutMillis: Long = 1500, block: () -> T): T {
         if (SwingUtilities.isEventDispatchThread()) return block()
-        var result: Result<T>? = null
+        val task = FutureTask<T> { block() }
+        SwingUtilities.invokeLater(task)
         try {
-            SwingUtilities.invokeAndWait { result = runCatching(block) }
-        } catch (error: InvocationTargetException) {
+            return task.get(timeoutMillis, TimeUnit.MILLISECONDS)
+        } catch (error: TimeoutException) {
+            task.cancel(false)
+            throw IllegalStateException("Burp UI did not respond within ${timeoutMillis}ms; retry when the interface is responsive", error)
+        } catch (error: InterruptedException) {
+            task.cancel(false)
+            Thread.currentThread().interrupt()
+            throw error
+        } catch (error: java.util.concurrent.ExecutionException) {
             throw error.cause ?: error
         }
-        return result?.getOrThrow() ?: error("Burp UI inspection did not return a result")
     }
 }

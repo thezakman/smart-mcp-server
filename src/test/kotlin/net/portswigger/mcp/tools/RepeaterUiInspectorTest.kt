@@ -1,15 +1,72 @@
 package net.portswigger.mcp.tools
 
+import burp.api.montoya.MontoyaApi
+import io.mockk.mockk
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JPanel
 import javax.swing.JLabel
 import javax.swing.JTabbedPane
+import javax.swing.SwingUtilities
 
 class RepeaterUiInspectorTest {
+    @Test
+    fun `editor callback holding a Burp lock never waits for the EDT`() {
+        val api = mockk<MontoyaApi>()
+        val burpLock = Any()
+        val edtAttemptingLock = CountDownLatch(1)
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val result = worker.submit<Boolean> {
+                synchronized(burpLock) {
+                    SwingUtilities.invokeLater {
+                        edtAttemptingLock.countDown()
+                        synchronized(burpLock) { }
+                    }
+                    check(edtAttemptingLock.await(2, TimeUnit.SECONDS))
+                    val binding = RepeaterUiInspector.editorBindingSelection(api)
+                    val sending = RepeaterUiInspector.selectedTab(api)
+                    binding.tab == null && sending.tab == null
+                }
+            }
+            assertTrue(result.get(2, TimeUnit.SECONDS))
+        } finally {
+            worker.shutdownNow()
+            assertTrue(worker.awaitTermination(2, TimeUnit.SECONDS))
+            SwingUtilities.invokeAndWait { }
+        }
+    }
+
+    @Test
+    fun `UI query times out and cancels queued traversal when EDT is blocked`() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val traversed = AtomicBoolean(false)
+        SwingUtilities.invokeLater {
+            entered.countDown()
+            release.await()
+        }
+        try {
+            assertTrue(entered.await(2, TimeUnit.SECONDS))
+            val error = assertThrows(IllegalStateException::class.java) {
+                RepeaterUiInspector.onEventDispatchThread(timeoutMillis = 50) { traversed.set(true) }
+            }
+            assertTrue(error.message!!.contains("Burp UI did not respond"))
+        } finally {
+            release.countDown()
+            SwingUtilities.invokeAndWait { }
+        }
+        assertFalse(traversed.get())
+    }
+
     @Test
     fun `finds Repeater pane and reads manual tab titles`() {
         val repeater = JTabbedPane().apply {

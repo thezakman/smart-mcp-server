@@ -14,6 +14,9 @@ import java.awt.Component
 import java.lang.ref.WeakReference
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JPanel
 import javax.swing.Timer
@@ -110,12 +113,20 @@ internal object RepeaterEditorObserver {
     private val exchanges = LinkedHashMap<String, RepeaterObservedExchange>()
 
     @Volatile
+    private var observationWorker: ThreadPoolExecutor? = null
+
+    @Volatile
     private var api: MontoyaApi? = null
 
     @Synchronized
     fun register(api: MontoyaApi) {
         if (!registered.compareAndSet(false, true)) return
         this.api = api
+        observationWorker = ThreadPoolExecutor(
+            1, 1, 0, TimeUnit.MILLISECONDS, ArrayBlockingQueue(128),
+            { task -> Thread(task, "mcp-repeater-observer").apply { isDaemon = true } },
+            ThreadPoolExecutor.DiscardPolicy()
+        )
         registrations += api.userInterface().registerHttpRequestEditorProvider { context -> RequestObserver(context) }
         registrations += api.userInterface().registerHttpResponseEditorProvider { context -> ResponseObserver(context) }
         scheduleRefresh(api, 500)
@@ -133,23 +144,25 @@ internal object RepeaterEditorObserver {
         }
     }
 
-    @Synchronized
     fun resolve(request: HttpRequest): RepeaterTabAssociation? {
-        val identityBucket = byIdentity[System.identityHashCode(request)]
-        if (identityBucket != null) {
-            identityBucket.removeIf { it.request.get() == null }
-            val exact = distinctTargets(identityBucket.filter { it.request.get() === request }.map { it.association })
-            if (exact.size == 1) return exact.single().copy(
-                source = "BURP_EDITOR_REQUEST_IDENTITY",
-                confidence = exact.single().confidence
-            )
-            if (exact.size > 1) return RepeaterTabAssociation(
-                source = "AMBIGUOUS_EDITOR_REQUEST_IDENTITY",
-                confidence = "AMBIGUOUS"
-            )
+        synchronized(this) {
+            val identityBucket = byIdentity[System.identityHashCode(request)]
+            if (identityBucket != null) {
+                identityBucket.removeIf { it.request.get() == null }
+                val exact = distinctTargets(identityBucket.filter { it.request.get() === request }.map { it.association })
+                if (exact.size == 1) return exact.single().copy(
+                    source = "BURP_EDITOR_REQUEST_IDENTITY",
+                    confidence = exact.single().confidence
+                )
+                if (exact.size > 1) return RepeaterTabAssociation(
+                    source = "AMBIGUOUS_EDITOR_REQUEST_IDENTITY",
+                    confidence = "AMBIGUOUS"
+                )
+            }
         }
-
-        val candidates = distinctTargets(byFingerprint[requestFingerprint(request)].orEmpty())
+        // Message access can acquire Burp locks. Never do it under our index monitor.
+        val fingerprint = requestFingerprint(request)
+        val candidates = synchronized(this) { distinctTargets(byFingerprint[fingerprint].orEmpty()) }
         return when (candidates.size) {
             0 -> null
             1 -> candidates.first().copy(source = "BURP_EDITOR_REQUEST_FINGERPRINT", confidence = "PROBABLE")
@@ -182,63 +195,81 @@ internal object RepeaterEditorObserver {
         rememberExchange(requestResponse, association)
     }
 
-    @Synchronized
     fun shutdown() {
-        refreshTimers.forEach(Timer::stop)
-        refreshTimers.clear()
-        registrations.forEach { registration -> runCatching { if (registration.isRegistered) registration.deregister() } }
-        registrations.clear()
-        byIdentity.clear()
-        byFingerprint.clear()
-        exchanges.clear()
-        api = null
-        registered.set(false)
+        val toDeregister = synchronized(this) {
+            api = null
+            observationWorker?.shutdownNow()
+            observationWorker = null
+            refreshTimers.forEach(Timer::stop)
+            refreshTimers.clear()
+            byIdentity.clear()
+            byFingerprint.clear()
+            exchanges.clear()
+            registered.set(false)
+            registrations.toList().also { registrations.clear() }
+        }
+        // Burp deregistration may acquire editor locks; never hold the observer monitor across it.
+        toDeregister.forEach { registration -> runCatching { if (registration.isRegistered) registration.deregister() } }
     }
 
     private fun observe(context: EditorCreationContext, requestResponse: HttpRequestResponse) {
         if (runCatching { context.toolSource().toolType() }.getOrNull() != ToolType.REPEATER) return
         val currentApi = api ?: return
-        val selection = runCatching { RepeaterUiInspector.editorBindingSelection(currentApi) }.getOrNull() ?: return
-        val tab = selection.tab ?: return
-        if (tab.title.isBlank()) return
-
-        val association = RepeaterTabAssociation(
+        val selection = runCatching { RepeaterUiInspector.editorBindingSelection(currentApi) }.getOrNull()
+        val tab = selection?.tab?.takeIf { it.title.isNotBlank() }
+        val capturedAssociation = tab?.let { RepeaterTabAssociation(
             tabId = tab.id,
             title = tab.title,
             groupTitle = tab.groupTitle,
             source = selection.source ?: "BURP_EDITOR_BINDING",
             confidence = selection.confidence ?: "PROBABLE"
-        )
-        val request = runCatching { requestResponse.request() }.getOrNull() ?: return
-        rememberAssociation(request, association)
-        if (association.confidence == "EXACT") rememberExchange(requestResponse, association)
+        ) }
+        // Return from the Burp callback before serialization or observer locking. Do not look up a later UI
+        // selection in the worker: the user may already have switched tabs by then.
+        val worker = observationWorker ?: return
+        worker.execute {
+            runCatching {
+                if (observationWorker !== worker) return@runCatching
+                val request = requestResponse.request()
+                val association = capturedAssociation ?: resolve(request)?.takeIf {
+                    it.source == "BURP_EDITOR_REQUEST_IDENTITY" && it.confidence == "EXACT"
+                } ?: return@runCatching
+                rememberAssociation(request, association, worker)
+                if (association.confidence == "EXACT") rememberExchange(requestResponse, association, worker)
+            }
+        }
     }
 
-    @Synchronized
-    private fun rememberAssociation(request: HttpRequest, association: RepeaterTabAssociation) {
-        val identityKey = System.identityHashCode(request)
-        val identities = byIdentity.getOrPut(identityKey) { ArrayDeque() }
-        identities.removeIf { it.request.get() == null }
-        identities.removeIf { it.request.get() === request && sameTarget(it.association, association) }
-        identities.addLast(IdentityObservation(WeakReference(request), association))
-        while (identities.size > MAX_ASSOCIATIONS_PER_FINGERPRINT) identities.removeFirst()
-
+    private fun rememberAssociation(
+        request: HttpRequest, association: RepeaterTabAssociation, worker: ThreadPoolExecutor? = null
+    ) {
         val fingerprint = requestFingerprint(request)
-        val fingerprintAssociations = byFingerprint.getOrPut(fingerprint) { LinkedHashSet() }
-        fingerprintAssociations.removeIf { sameTarget(it, association) }
-        fingerprintAssociations.add(association)
-        while (byFingerprint.size > MAX_REPEATER_OBSERVATIONS) byFingerprint.remove(byFingerprint.keys.first())
+        synchronized(this) {
+            if (worker != null && observationWorker !== worker) return
+            val identityKey = System.identityHashCode(request)
+            val identities = byIdentity.getOrPut(identityKey) { ArrayDeque() }
+            identities.removeIf { it.request.get() == null }
+            identities.removeIf { it.request.get() === request && sameTarget(it.association, association) }
+            identities.addLast(IdentityObservation(WeakReference(request), association))
+            while (identities.size > MAX_ASSOCIATIONS_PER_FINGERPRINT) identities.removeFirst()
+
+            val fingerprintAssociations = byFingerprint.getOrPut(fingerprint) { LinkedHashSet() }
+            fingerprintAssociations.removeIf { sameTarget(it, association) }
+            fingerprintAssociations.add(association)
+            while (byFingerprint.size > MAX_REPEATER_OBSERVATIONS) byFingerprint.remove(byFingerprint.keys.first())
+        }
     }
 
-    @Synchronized
-    private fun rememberExchange(requestResponse: HttpRequestResponse, association: RepeaterTabAssociation) {
+    private fun rememberExchange(
+        requestResponse: HttpRequestResponse, association: RepeaterTabAssociation, worker: ThreadPoolExecutor? = null
+    ) {
         val response = runCatching { requestResponse.response() }.getOrNull() ?: return
         val request = runCatching { requestResponse.request() }.getOrNull() ?: return
         val requestText = request.toString()
         val responseText = response.toString()
         val tabId = association.tabId ?: return
         val snapshotId = "repeater-snapshot-${sha256("$tabId\n$requestText\n$responseText").take(20)}"
-        exchanges[snapshotId] = RepeaterObservedExchange(
+        val exchange = RepeaterObservedExchange(
             snapshotId = snapshotId,
             tabId = tabId,
             tabTitle = association.title.orEmpty(),
@@ -256,7 +287,11 @@ internal object RepeaterEditorObserver {
             request = requestText,
             response = responseText
         )
-        while (exchanges.size > MAX_REPEATER_OBSERVATIONS) exchanges.remove(exchanges.keys.first())
+        synchronized(this) {
+            if (worker != null && observationWorker !== worker) return
+            exchanges[snapshotId] = exchange
+            while (exchanges.size > MAX_REPEATER_OBSERVATIONS) exchanges.remove(exchanges.keys.first())
+        }
     }
 
     private abstract class BaseObserver(private val context: EditorCreationContext) {
