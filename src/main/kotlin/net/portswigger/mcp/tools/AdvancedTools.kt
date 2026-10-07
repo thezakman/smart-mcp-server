@@ -165,6 +165,15 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
         capturedTrafficPage(ToolType.REPEATER, newestFirst, count, offset, config, tabTitle)
     }
 
+    mcpTool(
+        "list_repeater_tabs",
+        "List the live titles and selected state of currently open Burp Repeater tabs. Uses read-only Swing UI " +
+            "inspection because Montoya 2026.7 does not expose existing Repeater tabs. No target traffic is sent.",
+        READ_ONLY_TOOL
+    ) {
+        Json.encodeToString(RepeaterUiInspector.Snapshot.serializer(), RepeaterUiInspector.snapshot(api))
+    }
+
     mcpTool<GetIntruderTraffic>(
         "Compact index of Intruder exchanges observed after this extension was loaded. No bodies; no traffic is sent.",
         behavior = READ_ONLY_TOOL

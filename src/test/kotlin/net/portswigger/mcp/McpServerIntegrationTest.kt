@@ -94,6 +94,7 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("list_site_map"), "Server should expose the compact Site Map index")
             assertTrue(toolNames.contains("list_organizer_items"), "Server should expose the compact Organizer index")
             assertTrue(toolNames.contains("get_repeater_traffic"), "Server should expose captured Repeater traffic")
+            assertTrue(toolNames.contains("list_repeater_tabs"), "Server should expose live Repeater tab titles")
             assertTrue(toolNames.contains("compare_http_exchanges"), "Server should expose read-only comparison")
             assertTrue(toolNames.contains("compare_auth_controls"), "Server should expose three-control comparison")
             assertTrue(toolNames.contains("preview_request_mutation"), "Server should expose mutation preview")
@@ -104,7 +105,7 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("get_proxy_http_history_summary"), "Core should expose history summary")
             assertTrue(toolNames.contains("get_proxy_http_history_regex"), "Core should expose regex history search")
             assertFalse(toolNames.contains("url_encode"), "Core should hide legacy utility tools")
-            assertTrue(tools.size in 25..35, "Core catalog should stay compact; got ${tools.size} tools")
+            assertTrue(tools.size in 25..40, "Core catalog should stay compact; got ${tools.size} tools")
 
             val burpGatedTools = setOf(
                 "send_http1_request",
