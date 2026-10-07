@@ -46,6 +46,8 @@ internal object RepeaterUiInspector {
             )
     }
 
+    fun selectedTab(api: MontoyaApi): Tab? = snapshot(api).tabs.firstOrNull { it.selected }
+
     internal fun findAttachedRepeaterPane(root: Container): JTabbedPane? {
         val suiteTabs = descendants(root)
             .filterIsInstance<JTabbedPane>()

@@ -24,6 +24,7 @@ import kotlin.math.absoluteValue
 
 private const val MAX_CAPTURED_PER_TOOL = 1000
 private const val MAX_REPEATER_TAB_ASSOCIATIONS = 1000
+private const val MAX_PENDING_REPEATER_REQUESTS = 1000
 
 private inline fun <T> safeCapture(block: () -> T): T? = try {
     block()
@@ -59,6 +60,7 @@ object TrafficStore {
     private val buffers = ConcurrentHashMap<String, ToolBuffer>()
     private val nextMcpMessageId = AtomicInteger(-1)
     private val repeaterTabTitles = LinkedHashMap<String, LinkedHashSet<String>>()
+    private val pendingRepeaterTitles = LinkedHashMap<Int, RepeaterTabAssociation>()
 
     @Volatile
     private var registration: Registration? = null
@@ -84,14 +86,28 @@ object TrafficStore {
         if (registration?.isRegistered == true) return
 
         registration = api.http().registerHttpHandler(object : HttpHandler {
-            override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction =
-                RequestToBeSentAction.continueWith(requestToBeSent)
+            override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
+                if (requestToBeSent.toolSource().toolType() == ToolType.REPEATER) {
+                    val selectedTitle = safeCapture { RepeaterUiInspector.selectedTab(api)?.title }
+                        ?.takeIf { it.isNotBlank() }
+                    if (selectedTitle != null) {
+                        registerPendingRepeaterTitle(
+                            requestToBeSent.messageId(),
+                            selectedTitle,
+                            "BURP_SWING_SELECTED_AT_REQUEST"
+                        )
+                    }
+                }
+                return RequestToBeSentAction.continueWith(requestToBeSent)
+            }
 
             override fun handleHttpResponseReceived(responseReceived: HttpResponseReceived): ResponseReceivedAction {
                 val tool = responseReceived.toolSource().toolType()
                 if (tool == ToolType.REPEATER || tool == ToolType.INTRUDER) {
                     val request = responseReceived.initiatingRequest()
-                    val tabAssociation = if (tool == ToolType.REPEATER) resolveRepeaterTab(request) else null
+                    val tabAssociation = if (tool == ToolType.REPEATER) {
+                        consumePendingRepeaterTitle(responseReceived.messageId()) ?: resolveRepeaterTab(request)
+                    } else null
                     val exchange = CapturedExchange(
                             exchangeId = "${tool.name.lowercase()}-${responseReceived.messageId()}",
                             messageId = responseReceived.messageId(),
@@ -141,6 +157,18 @@ object TrafficStore {
             RepeaterTabAssociation(null, "AMBIGUOUS_MCP_REQUEST_FINGERPRINT")
         }
     }
+
+    @Synchronized
+    internal fun registerPendingRepeaterTitle(messageId: Int, title: String, source: String) {
+        pendingRepeaterTitles[messageId] = RepeaterTabAssociation(title.trim(), source)
+        while (pendingRepeaterTitles.size > MAX_PENDING_REPEATER_REQUESTS) {
+            pendingRepeaterTitles.remove(pendingRepeaterTitles.keys.first())
+        }
+    }
+
+    @Synchronized
+    internal fun consumePendingRepeaterTitle(messageId: Int): RepeaterTabAssociation? =
+        pendingRepeaterTitles.remove(messageId)
 
     fun snapshot(tool: ToolType, newestFirst: Boolean): List<CapturedExchange> {
         val items = buffers[tool.name]?.snapshot().orEmpty()
@@ -192,6 +220,7 @@ object TrafficStore {
         buffers.values.forEach { it.clear() }
         buffers.clear()
         repeaterTabTitles.clear()
+        pendingRepeaterTitles.clear()
         nextMcpMessageId.set(-1)
     }
 

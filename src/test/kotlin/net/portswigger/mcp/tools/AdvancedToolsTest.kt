@@ -46,6 +46,16 @@ class AdvancedToolsTest {
     }
 
     @Test
+    fun `live selected Repeater title follows its request message ID`() {
+        TrafficStore.registerPendingRepeaterTitle(247, "FIND_024", "BURP_SWING_SELECTED_AT_REQUEST")
+
+        val association = TrafficStore.consumePendingRepeaterTitle(247)
+        assertEquals("FIND_024", association?.title)
+        assertEquals("BURP_SWING_SELECTED_AT_REQUEST", association?.source)
+        assertEquals(null, TrafficStore.consumePendingRepeaterTitle(247), "association must be consumed once")
+    }
+
+    @Test
     fun `direct MCP exchanges receive persistent IDs and chunk metadata`() {
         val request = mockk<HttpRequest>(relaxed = true)
         val response = mockk<HttpResponse>(relaxed = true)

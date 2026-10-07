@@ -5,7 +5,7 @@
 <h1 align="center">Smart Burp MCP Server</h1>
 
 <p align="center">
-  <strong>Extension 1.11.5</strong> &nbsp;·&nbsp;
+  <strong>Extension 1.11.6</strong> &nbsp;·&nbsp;
   <strong>Montoya API 2026.7 — latest official release</strong>
 </p>
 
@@ -24,7 +24,7 @@ response comparison, diagnostics and reviewed single-request mutations.
 The extension is built against
 [Montoya API 2026.7](https://github.com/PortSwigger/burp-extensions-montoya-api/releases/tag/2026.7), the latest
 official Montoya release published by PortSwigger. The Montoya version and the extension version are independent:
-Montoya identifies the Burp API compatibility level, while `1.11.5` identifies this Smart Burp MCP release.
+Montoya identifies the Burp API compatibility level, while `1.11.6` identifies this Smart Burp MCP release.
 
 For more information about the protocol visit: [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 
@@ -43,7 +43,7 @@ fork point; the upstream project may continue to evolve independently.
 | Sensitive traffic | Captured messages returned by the original bulk tools | Keeps raw cookies, tokens and credentials intact by default; optional masking is explicit and tool-specific |
 | Site Map | No compact Site Map MCP workflow | Adds filtered compact indexing and content-derived SHA-256 keys with selective detail retrieval |
 | Organizer | Bulk read and regex search | Adds compact index/detail, native IDs, notes, highlight updates and saving existing captured exchanges with note and color without target traffic; Organizer Collections remain unavailable because Montoya does not expose their names or membership |
-| Repeater and Intruder | Can create tabs from supplied MCP content | Also lists live Repeater titles, opens exact Proxy-history requests by ID, captures subsequent Repeater/Intruder exchanges in bounded memory buffers, and associates unchanged requests with titles supplied when MCP created the Repeater tab |
+| Repeater and Intruder | Can create tabs from supplied MCP content | Also lists live Repeater titles, opens exact Proxy-history requests by ID, captures subsequent Repeater/Intruder exchanges in bounded memory buffers, and indexes ordinary sends under the selected Repeater title |
 | Response analysis | Caller compares raw results manually | Adds read-only pairwise comparison plus anonymous vs invalid-token vs valid-token control comparison |
 | Request changes | Caller constructs and sends a complete request | Adds previewed single-request mutation for method, path, header, body and common parameter types; send requires the preview SHA-256 and target approval |
 | MCP guidance | Tool descriptions only | Adds server initialize instructions that direct clients to compact index → selected detail workflows |
@@ -84,7 +84,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Persistent in-session exchange IDs for direct MCP sends, with chunked retrieval and Organizer handoff
 - Color, regex, scope, static-resource, host, path, method, status, MIME, header, Trace ID and JSON-content filters
 - Live enumeration of manual and MCP-created Repeater tab titles through read-only Burp Swing inspection
-- Repeater and Intruder capture after extension load, with bounded in-memory buffers and best-effort title association for MCP-created Repeater tabs
+- Repeater and Intruder capture after extension load, with bounded in-memory buffers and selected-tab title association for Repeater history
 - Read-only response comparison and JSON-key/header difference analysis
 - Three-control authorization comparison for anonymous, invalid-token and valid-token evidence
 - Automatic Collaborator correlation across payload, originating exchange, interaction and Trace ID
@@ -284,7 +284,7 @@ The default **Core** profile exposes the modern tools used for compact discovery
 analysis and reviewed sends. Select **Full compatibility** in Burp to additionally expose the overlapping legacy
 history tools, raw tab constructors, editor controls and encoding utilities.
 
-With Burp Suite Professional, version 1.11.5 exposes **38 tools** in the default Core profile. Scanner and
+With Burp Suite Professional, version 1.11.6 exposes **38 tools** in the default Core profile. Scanner and
 Collaborator account for the Professional-only entries, so the exact count can differ by Burp edition and selected
 tool profile. `get_mcp_diagnostics` reports the active profile, tool count and complete schema size at runtime.
 
@@ -342,7 +342,7 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 | `set_organizer_item_notes` / `set_organizer_item_highlight` | Update the note or color of one Organizer item by native ID | Local project mutation; no target traffic |
 | `save_exchange_to_organizer` | Save an existing Proxy/Repeater/Intruder exchange | No target traffic |
 | `list_repeater_tabs` | List live manual and MCP-created Repeater titles and the selected tab | Read-only Swing inspection; no target traffic |
-| `get_repeater_traffic` | Index Repeater traffic and optionally filter by `tabTitle` | In-memory buffer; MCP-created titles are matched only while the request remains unchanged |
+| `get_repeater_traffic` | Index Repeater traffic and optionally filter by `tabTitle` | In-memory buffer; captures the selected live title when each request starts |
 | `get_intruder_traffic` | Index Intruder traffic observed after extension load | In-memory buffer; 1,000 exchanges |
 | `get_captured_exchange_by_id` | Retrieve a captured Repeater/Intruder exchange | Original content in bounded chunks |
 | `compare_http_exchanges` | Compare two captured responses | No target traffic |
@@ -425,11 +425,12 @@ Timing is observed response-start latency, nullable when unavailable; it does no
 All history tools honor Burp's existing data-access controls. Read tools send no target traffic;
 the Repeater/Intruder helpers only create local tabs and preserve the captured request object.
 
-When MCP creates a named Repeater tab, the extension stores a bounded SHA-256 fingerprint of the request and its
-declared title. A later unchanged send from that tab adds `tabTitle` and
-`tabTitleSource: "MCP_REQUEST_FINGERPRINT"` to `get_repeater_traffic`; callers can pass `tabTitle` to search the
-same compact history. If identical requests were opened with different titles, the exchange is marked
-`AMBIGUOUS_MCP_REQUEST_FINGERPRINT` and no title is guessed. No request header or body is modified for correlation.
+When a Repeater request starts, the extension reads the selected live tab title and carries it to the response by
+Montoya message ID. `get_repeater_traffic` returns that title with
+`tabTitleSource: "BURP_SWING_SELECTED_AT_REQUEST"`, and callers can pass `tabTitle` to search the same compact
+history. Tabs created by MCP retain a bounded request-fingerprint fallback. If identical MCP requests were opened
+with different titles, the fallback is marked `AMBIGUOUS_MCP_REQUEST_FINGERPRINT` instead of guessing. No request
+header or body is modified for correlation.
 
 ColorStrike's automatic batching and attack prompt are not included. Explicit mutations use a two-step flow:
 `preview_request_mutation` returns the exact request plus `mutatedSha256`; `send_mutated_request` accepts that
@@ -448,8 +449,8 @@ rewriting. `build`, `shadowJar` and the compatible `embedProxyJar` entry point a
   arguments or result bodies.
 - Repeater and Intruder buffers are memory-only, hold at most 1,000 exchanges per tool and are cleared when the
   MCP server or extension stops.
-- Repeater title associations contain only request fingerprints and declared titles, are bounded to 1,000 distinct
-  requests, and are cleared with the MCP server or extension.
+- Repeater title associations contain titles, Montoya message IDs and request fingerprints only, are bounded to
+  1,000 entries per association map, and are cleared with the MCP server or extension.
 - Structured history searches reuse an incremental metadata index and allow at most two simultaneous heavy searches;
   additional calls receive a structured retryable `BUSY` error instead of consuming an unbounded worker queue.
 
@@ -458,12 +459,13 @@ rewriting. `build`, `shadowJar` and the compatible `embedProxyJar` entry point a
 - Montoya API 2026.7 exposes Organizer items but does not expose Organizer Collection names, membership, creation or
   movement between Collections. The MCP can list and retrieve items, update notes and colors, and save captured
   exchanges to Organizer, but it cannot identify or manage a Collection such as `Honda`.
-- Montoya API 2026.7 cannot enumerate existing Repeater tabs or expose their current titles. Version 1.11.5 bridges
+- Montoya API 2026.7 cannot enumerate existing Repeater tabs or expose their current titles. Version 1.11.6 bridges
   that gap with read-only traversal of Burp's Swing component tree, so `list_repeater_tabs` can list manual and
   MCP-created titles. Because Burp's internal component hierarchy is not part of Montoya's compatibility contract,
   the tool returns an explicit unavailable result if a future Burp UI layout cannot be recognized.
-- Captured Repeater history still receives a best-effort title only for tabs created by MCP when the sent request
-  matches its original fingerprint; edited requests and ambiguous duplicates are never assigned a guessed title.
+- Repeater history title association is exact for the selected tab in ordinary single-tab sends. Burp group sends
+  do not expose the originating member tab through Montoya, so their title remains best-effort. Historical sends
+  from before the extension registered its handler cannot be reconstructed.
 - Montoya cannot read Repeater traffic or Intruder attacks that occurred before this extension registered its HTTP handler.
 - Site Map entries do not expose a native Montoya ID, so `list_site_map` returns a SHA-256 lookup key derived from
   the request and service.

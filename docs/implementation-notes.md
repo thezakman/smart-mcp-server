@@ -33,9 +33,16 @@ embedded `mcp-proxy-all.jar`, which connects to the configured local SSE endpoin
 
 ## Repeater and Intruder capture
 
-Montoya cannot enumerate existing Repeater tabs or completed Intruder attacks. One HTTP handler records exchanges
-from those tools after the MCP server starts. Each tool has an independent 1,000-entry in-memory ring buffer.
-Registrations and buffers are cleared when the server or extension stops.
+Montoya 2026.7 cannot enumerate existing Repeater tabs. The extension uses the public `SwingUtils.suiteFrame()`
+entry point and read-only traversal of the Swing component tree to find Repeater's `JTabbedPane`. This exposes live
+manual and MCP-created titles without reflecting into Burp's obfuscated implementation classes. The layout is not a
+Montoya compatibility contract, so discovery fails closed with an explicit unavailable result if Burp changes it.
+
+One HTTP handler records Repeater and Intruder exchanges after the MCP server starts. At the start of an ordinary
+Repeater send, the selected Swing title is stored under the Montoya message ID and attached to the matching response.
+Group sends do not expose the originating member tab, so that case remains best-effort. Each tool has an independent
+1,000-entry in-memory ring buffer. Registrations, title associations and buffers are cleared when the server or
+extension stops.
 
 ## Mutation workflow
 

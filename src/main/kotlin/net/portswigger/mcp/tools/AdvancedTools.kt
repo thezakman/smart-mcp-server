@@ -158,8 +158,9 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
     }
 
     mcpTool<GetRepeaterTraffic>(
-        "Compact index of Repeater exchanges observed after this extension was loaded. Includes best-effort titles " +
-            "for unchanged tabs created by MCP and can filter them by tabTitle. No bodies; no traffic is sent.",
+        "Compact index of Repeater exchanges observed after this extension was loaded. Includes the live selected " +
+            "tab title captured when a request starts, with fingerprint fallback for MCP-created tabs, and can filter " +
+            "by tabTitle. No bodies; no traffic is sent.",
         behavior = READ_ONLY_TOOL
     ) {
         capturedTrafficPage(ToolType.REPEATER, newestFirst, count, offset, config, tabTitle)
