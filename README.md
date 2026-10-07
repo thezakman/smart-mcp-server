@@ -288,6 +288,51 @@ With Burp Suite Professional, version 1.12.0 exposes **39 tools** in the default
 Collaborator account for the Professional-only entries, so the exact count can differ by Burp edition and selected
 tool profile. `get_mcp_diagnostics` reports the active profile, tool count and complete schema size at runtime.
 
+**Repeater titles and observed history are available in Core.** You do not need Full compatibility to use
+`list_repeater_tabs`, `get_repeater_tab_history` or `get_repeater_traffic`.
+
+### Repeater titles and observed history
+
+Use `list_repeater_tabs` with empty arguments (`{}`) to read the live names of open Repeater tabs, including tabs
+created manually in Burp. Each tab includes its `id`, `title`, `selected` state and `containerId`. Groups and detached
+windows are included when discoverable through Burp's UI. Listing tabs does not send requests or switch tabs.
+
+To inspect one tab, use the returned ID as `tabId` in `get_repeater_tab_history`. For example, these are MCP tool
+arguments, not terminal commands; replace the sample ID with one returned by your current session:
+
+```json
+{"tabId": "repeater-tab-7", "count": 10, "offset": 0}
+```
+
+The result is a compact list of observed states. Pass a returned `snapshotId` to the same tool to retrieve that
+state's request and response:
+
+```json
+{"snapshotId": "<snapshotId from the previous result>", "contentOffset": 0, "maxMessageChars": 10000}
+```
+
+Follow each message's `nextOffset` as `contentOffset` to read further chunks. An exact `tabTitle` filter is also
+available, but prefer `tabId` to distinguish duplicate titles and track a tab across renames. IDs and observations
+belong to the loaded extension session; list tabs again after reloading the extension.
+
+**Observed history is not the complete native Repeater back/forward history.** The extension captures states that
+Burp binds to its editors. The startup walk collects current states from existing tabs; older entries become
+available only after Burp displays them. A visible tab can therefore have no captured states yet.
+`get_repeater_traffic` separately lists sends captured after extension load, with explicit attribution confidence.
+These three read tools generate no target traffic.
+
+### A connected client is missing a tool
+
+After an extension update, compare the server's MCP `tools/list` response with the tools actually available to the
+assistant. A client can report **connected (39 tools)** while an existing assistant session still has an earlier
+catalog. This was observed with version 1.12.0: the session exposed 30 tools until its catalog refreshed, after which
+`list_repeater_tabs` was callable directly.
+
+If the server lists the tool but the assistant cannot call it, reconnect or refresh the MCP connection in your client
+and, if necessary, start a new assistant session. Verify that the tool is available by name, not just by the connection
+count. Switching to Full compatibility is not required for the Repeater tools above. If the server itself omits the
+tool, check the loaded extension version and active profile with `get_mcp_diagnostics` first.
+
 ### Requests, Burp tabs and utilities
 
 | Tool | Purpose |
