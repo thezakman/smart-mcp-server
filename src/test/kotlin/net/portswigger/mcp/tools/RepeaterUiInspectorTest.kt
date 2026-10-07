@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import javax.swing.JPanel
+import javax.swing.JLabel
 import javax.swing.JTabbedPane
 
 class RepeaterUiInspectorTest {
@@ -42,5 +43,26 @@ class RepeaterUiInspectorTest {
         }
 
         assertEquals(null, RepeaterUiInspector.findAttachedRepeaterPane(root))
+    }
+
+    @Test
+    fun `uses stable session ids and reads group headers`() {
+        val repeater = JTabbedPane().apply {
+            addTab("Payments", JPanel())
+            addTab("LIST_01", JPanel())
+            addTab("UPDATE_02", JPanel())
+            setTabComponentAt(0, JPanel().apply {
+                add(JLabel("Payments"))
+                add(JLabel("2"))
+            })
+            selectedIndex = 2
+        }
+
+        val first = RepeaterUiInspector.snapshot(repeater)
+        val second = RepeaterUiInspector.snapshot(repeater)
+
+        assertEquals(first.tabs.map { it.id }, second.tabs.map { it.id })
+        assertEquals("Payments", first.tabs[2].groupTitle)
+        assertEquals(1, first.containers)
     }
 }

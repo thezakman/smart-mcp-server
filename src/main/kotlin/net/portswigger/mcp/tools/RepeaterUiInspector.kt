@@ -5,26 +5,47 @@ import kotlinx.serialization.Serializable
 import java.awt.Component
 import java.awt.Container
 import java.awt.Frame
+import java.awt.KeyboardFocusManager
 import java.awt.Window
 import java.lang.reflect.InvocationTargetException
+import java.util.IdentityHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import javax.swing.AbstractButton
+import javax.swing.JComponent
+import javax.swing.JLabel
 import javax.swing.JTabbedPane
 import javax.swing.SwingUtilities
 import javax.swing.text.JTextComponent
 
 /**
- * Read-only inspection of Burp's Repeater tab strip.
+ * Best-effort, read-only inspection of Burp's live Repeater UI.
  *
- * Montoya currently exposes only sendToRepeater(), but SwingUtils exposes the suite frame. Burp's own Repeater UI
- * is a JTabbedPane, so its live captions can be read without reflecting into obfuscated Burp classes or changing the
- * UI. This is intentionally isolated because the component hierarchy is not part of Montoya's compatibility contract.
+ * Montoya 2026.7 can create a Repeater tab but cannot enumerate existing tabs or expose their identity. This class
+ * keeps every unsupported Swing detail in one place, runs all traversal on the EDT and returns an explicit unavailable
+ * or ambiguous result instead of silently choosing an arbitrary pane.
  */
 internal object RepeaterUiInspector {
+    private val nextComponentId = AtomicInteger(1)
+    private val componentIds = IdentityHashMap<Component, String>()
+
+    @Volatile
+    private var walkSelection: Tab? = null
+
+    private val auxiliaryTabTitles = setOf(
+        "beautify", "custom actions", "headers", "hex", "inspector", "params", "pretty", "raw", "render"
+    )
+
     @Serializable
     data class Tab(
+        val id: String,
+        val containerId: String,
+        val source: String,
         val index: Int,
         val title: String,
+        val groupTitle: String? = null,
         val selected: Boolean,
-        val enabled: Boolean
+        val enabled: Boolean,
+        val windowTitle: String? = null
     )
 
     @Serializable
@@ -33,20 +54,92 @@ internal object RepeaterUiInspector {
         val source: String? = null,
         val selectedIndex: Int? = null,
         val tabs: List<Tab> = emptyList(),
+        val containers: Int = 0,
         val limitation: String? = null
     )
 
+    @Serializable
+    data class Selection(
+        val tab: Tab? = null,
+        val ambiguous: Boolean = false,
+        val candidateIds: List<String> = emptyList()
+    )
+
+    private data class LocatedPane(
+        val pane: JTabbedPane,
+        val source: String,
+        val windowTitle: String?,
+        val owner: Window?
+    )
+
     fun snapshot(api: MontoyaApi): Snapshot = onEventDispatchThread {
-        val suiteFrame = api.userInterface().swingUtils().suiteFrame()
-        findAttachedRepeaterPane(suiteFrame)?.let { pane -> snapshot(pane, "BURP_SWING_ATTACHED") }
-            ?: findDetachedRepeaterPane(suiteFrame)?.let { pane -> snapshot(pane, "BURP_SWING_DETACHED") }
-            ?: Snapshot(
+        val panes = locatePanes(api)
+        if (panes.isEmpty()) {
+            Snapshot(
                 available = false,
                 limitation = "Repeater tab strip was not found in this Burp UI layout"
             )
+        } else {
+            val tabs = panes.flatMap(::tabsFor)
+            Snapshot(
+                available = true,
+                source = panes.map { it.source }.distinct().singleOrNull() ?: "BURP_SWING_MULTIPLE",
+                selectedIndex = panes.singleOrNull()?.pane?.selectedIndex?.takeIf { it >= 0 },
+                tabs = tabs,
+                containers = panes.size,
+                limitation = "Titles and current selection are live UI state. Native back/forward Repeater history " +
+                    "is not exposed by Montoya 2026.7."
+            )
+        }
     }
 
-    fun selectedTab(api: MontoyaApi): Tab? = snapshot(api).tabs.firstOrNull { it.selected }
+    /**
+     * Returns the selected tab only when its source pane can be identified without choosing arbitrarily.
+     * A startup binding walk has exact pane/index context. Normal sends prefer the currently active Burp window.
+     */
+    fun selectedTab(api: MontoyaApi): Selection = onEventDispatchThread {
+        walkSelection?.let { return@onEventDispatchThread Selection(tab = it) }
+
+        val panes = locatePanes(api)
+        if (panes.isEmpty()) return@onEventDispatchThread Selection()
+        val activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
+        val activePanes = panes.filter { located ->
+            activeWindow != null &&
+                (located.owner === activeWindow || SwingUtilities.isDescendingFrom(located.pane, activeWindow))
+        }
+        val candidates = (activePanes.ifEmpty { panes.takeIf { it.size == 1 }.orEmpty() })
+            .mapNotNull { located -> tabsFor(located).firstOrNull { it.selected } }
+
+        when (candidates.size) {
+            0 -> Selection()
+            1 -> Selection(tab = candidates.single())
+            else -> Selection(ambiguous = true, candidateIds = candidates.map { it.id })
+        }
+    }
+
+    /**
+     * Selects each currently discoverable Repeater tab once and restores every selection. Burp lazily binds editor
+     * providers as tabs become visible, so this gives the observer a chance to capture the current request/response
+     * of tabs that existed before the extension loaded. It never clicks Send or changes message contents.
+     */
+    fun refreshEditorBindings(api: MontoyaApi): Int = onEventDispatchThread {
+        var visited = 0
+        locatePanes(api).forEach { located ->
+            val pane = located.pane
+            val original = pane.selectedIndex
+            try {
+                for (index in 0 until pane.tabCount) {
+                    walkSelection = tabAt(located, index, selected = true)
+                    if (pane.selectedIndex != index) pane.selectedIndex = index
+                    visited++
+                }
+            } finally {
+                if (original in 0 until pane.tabCount) pane.selectedIndex = original
+                walkSelection = null
+            }
+        }
+        visited
+    }
 
     internal fun findAttachedRepeaterPane(root: Container): JTabbedPane? {
         val suiteTabs = descendants(root)
@@ -58,48 +151,114 @@ internal object RepeaterUiInspector {
         val repeaterIndex = (0 until suiteTabs.tabCount)
             .firstOrNull { suiteTabs.getTitleAt(it).equals("Repeater", ignoreCase = true) }
             ?: return null
-        val repeaterComponent = suiteTabs.getComponentAt(repeaterIndex)
-
-        if (repeaterComponent is JTabbedPane) return repeaterComponent
-        return descendants(repeaterComponent).filterIsInstance<JTabbedPane>().firstOrNull()
+        return findPrimaryRepeaterPane(suiteTabs.getComponentAt(repeaterIndex))
     }
 
-    private fun findDetachedRepeaterPane(suiteFrame: Frame): JTabbedPane? = Window.getWindows()
-        .asSequence()
-        .filter { it !== suiteFrame && it.isShowing }
-        .filterIsInstance<Frame>()
-        .filter { it.title.equals("Repeater", ignoreCase = true) || it.title.equals("Burp Repeater", ignoreCase = true) }
-        .mapNotNull { frame ->
-            val panes = descendants(frame).filterIsInstance<JTabbedPane>().toList()
-            // Detached Repeater currently wraps the actual request tabs in one outer pane.
-            panes.firstOrNull { candidate ->
-                panes.none { other -> other !== candidate && SwingUtilities.isDescendingFrom(candidate, other) }
-            }?.let { outer -> descendants(outer).filterIsInstance<JTabbedPane>().firstOrNull { it !== outer } }
-                ?: panes.firstOrNull()
-        }
-        .firstOrNull()
-
     internal fun snapshot(pane: JTabbedPane, source: String = "TEST"): Snapshot {
-        val selected = pane.selectedIndex.takeIf { it >= 0 }
-        val tabs = (0 until pane.tabCount).map { index ->
-            Tab(
-                index = index,
-                title = tabTitle(pane, index),
-                selected = index == selected,
-                enabled = pane.isEnabledAt(index)
-            )
+        val located = LocatedPane(pane, source, null, SwingUtilities.getWindowAncestor(pane))
+        return Snapshot(
+            available = true,
+            source = source,
+            selectedIndex = pane.selectedIndex.takeIf { it >= 0 },
+            tabs = tabsFor(located),
+            containers = 1
+        )
+    }
+
+    internal fun clear() = synchronized(componentIds) {
+        componentIds.clear()
+        nextComponentId.set(1)
+        walkSelection = null
+    }
+
+    private fun locatePanes(api: MontoyaApi): List<LocatedPane> {
+        val suiteFrame = api.userInterface().swingUtils().suiteFrame()
+        val found = ArrayList<LocatedPane>()
+        findAttachedRepeaterPane(suiteFrame)?.let {
+            found += LocatedPane(it, "BURP_SWING_ATTACHED", suiteFrame.title, suiteFrame)
         }
-        return Snapshot(true, source, selected, tabs)
+
+        Window.getWindows().asSequence()
+            .filter { it !== suiteFrame && it.isShowing }
+            .filterIsInstance<Frame>()
+            .filter { frame ->
+                frame.title.equals("Repeater", ignoreCase = true) ||
+                    frame.title.equals("Burp Repeater", ignoreCase = true)
+            }
+            .forEach { frame ->
+                findPrimaryRepeaterPane(frame)?.let {
+                    found += LocatedPane(it, "BURP_SWING_DETACHED", frame.title, frame)
+                }
+            }
+
+        return found.distinctBy { System.identityHashCode(it.pane) }
+    }
+
+    private fun findPrimaryRepeaterPane(root: Component): JTabbedPane? {
+        if (root is JTabbedPane && isRepeaterTabPane(root)) return root
+        return descendants(root).filterIsInstance<JTabbedPane>().firstOrNull(::isRepeaterTabPane)
+    }
+
+    private fun isRepeaterTabPane(pane: JTabbedPane): Boolean {
+        if (pane.tabCount <= 0) return false
+        val titled = (0 until pane.tabCount).map { tabTitle(pane, it).lowercase() }.filter { it.isNotBlank() }
+        return titled.isNotEmpty() && titled.any { it !in auxiliaryTabTitles }
+    }
+
+    private fun tabsFor(located: LocatedPane): List<Tab> = (0 until located.pane.tabCount).map { index ->
+        tabAt(located, index, selected = index == located.pane.selectedIndex)
+    }
+
+    private fun tabAt(located: LocatedPane, index: Int, selected: Boolean): Tab {
+        val pane = located.pane
+        val containerId = componentId(pane, "repeater-pane")
+        val content = pane.getComponentAt(index)
+        return Tab(
+            id = componentId(content, "repeater-tab"),
+            containerId = containerId,
+            source = located.source,
+            index = index,
+            title = tabTitle(pane, index),
+            groupTitle = groupTitle(pane, index),
+            selected = selected,
+            enabled = pane.isEnabledAt(index),
+            windowTitle = located.windowTitle
+        )
+    }
+
+    private fun groupTitle(pane: JTabbedPane, selectedIndex: Int): String? {
+        for (index in selectedIndex - 1 downTo 0) {
+            val headerTexts = displayTexts(pane.getTabComponentAt(index))
+            val childCount = headerTexts.firstNotNullOfOrNull { it.toIntOrNull() } ?: continue
+            if (childCount > 0 && selectedIndex <= index + childCount) {
+                return headerTexts.firstOrNull { value -> value.toIntOrNull() == null && value.isNotBlank() }
+                    ?: tabTitle(pane, index).takeIf { it.isNotBlank() }
+            }
+        }
+        return null
     }
 
     private fun tabTitle(pane: JTabbedPane, index: Int): String {
         pane.getTitleAt(index)?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
-        val header = pane.getTabComponentAt(index) ?: return ""
-        return descendants(header)
-            .filterIsInstance<JTextComponent>()
-            .map { it.text.trim() }
-            .firstOrNull { it.isNotEmpty() }
-            .orEmpty()
+        pane.getToolTipTextAt(index)?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        return displayTexts(pane.getTabComponentAt(index)).firstOrNull().orEmpty()
+    }
+
+    private fun displayTexts(root: Component?): List<String> {
+        if (root == null) return emptyList()
+        return descendants(root).mapNotNull { component ->
+            when (component) {
+                is JLabel -> component.text
+                is AbstractButton -> component.text
+                is JTextComponent -> component.text
+                is JComponent -> component.toolTipText
+                else -> component.accessibleContext?.accessibleName
+            }?.trim()?.takeIf { it.isNotEmpty() }
+        }.distinct().toList()
+    }
+
+    private fun componentId(component: Component, prefix: String): String = synchronized(componentIds) {
+        componentIds.getOrPut(component) { "$prefix-${nextComponentId.getAndIncrement()}" }
     }
 
     private fun descendants(root: Component): Sequence<Component> = sequence {

@@ -45,15 +45,13 @@ data class CapturedExchange(
     val path: String?,
     val statusCode: Int?,
     val mimeType: String?,
+    val tabId: String? = null,
     val tabTitle: String? = null,
+    val tabGroup: String? = null,
     val tabTitleSource: String? = null,
+    val tabAssociationConfidence: String? = null,
     val request: String,
     val response: String
-)
-
-internal data class RepeaterTabAssociation(
-    val title: String?,
-    val source: String
 )
 
 object TrafficStore {
@@ -88,15 +86,22 @@ object TrafficStore {
         registration = api.http().registerHttpHandler(object : HttpHandler {
             override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
                 if (requestToBeSent.toolSource().toolType() == ToolType.REPEATER) {
-                    val selectedTitle = safeCapture { RepeaterUiInspector.selectedTab(api)?.title }
-                        ?.takeIf { it.isNotBlank() }
-                    if (selectedTitle != null) {
-                        registerPendingRepeaterTitle(
-                            requestToBeSent.messageId(),
-                            selectedTitle,
-                            "BURP_SWING_SELECTED_AT_REQUEST"
+                    val observed = safeCapture { RepeaterEditorObserver.resolve(requestToBeSent) }
+                    val selected = safeCapture { RepeaterUiInspector.selectedTab(api) }?.tab
+                    val association = when {
+                        observed?.confidence == "EXACT" -> observed
+                        selected != null -> RepeaterTabAssociation(
+                            tabId = selected.id,
+                            title = selected.title,
+                            groupTitle = selected.groupTitle,
+                            source = "BURP_SWING_ACTIVE_SELECTION_AT_REQUEST",
+                            confidence = "PROBABLE"
                         )
+                        else -> observed
                     }
+                    if (association != null) registerPendingRepeaterAssociation(
+                        requestToBeSent.messageId(), association
+                    )
                 }
                 return RequestToBeSentAction.continueWith(requestToBeSent)
             }
@@ -120,8 +125,11 @@ object TrafficStore {
                             path = safeCapture { request.path() },
                             statusCode = safeCapture { responseReceived.statusCode().toInt() },
                             mimeType = safeCapture { responseReceived.mimeType().name },
+                            tabId = tabAssociation?.tabId,
                             tabTitle = tabAssociation?.title,
+                            tabGroup = tabAssociation?.groupTitle,
                             tabTitleSource = tabAssociation?.source,
+                            tabAssociationConfidence = tabAssociation?.confidence,
                             request = request.toString(),
                             response = responseReceived.toString()
                         )
@@ -152,15 +160,30 @@ object TrafficStore {
     internal fun resolveRepeaterTab(request: HttpRequest): RepeaterTabAssociation? {
         val titles = repeaterTabTitles[requestFingerprint(request)] ?: return null
         return if (titles.size == 1) {
-            RepeaterTabAssociation(titles.first(), "MCP_REQUEST_FINGERPRINT")
+            RepeaterTabAssociation(
+                title = titles.first(),
+                source = "MCP_REQUEST_FINGERPRINT",
+                confidence = "PROBABLE"
+            )
         } else {
-            RepeaterTabAssociation(null, "AMBIGUOUS_MCP_REQUEST_FINGERPRINT")
+            RepeaterTabAssociation(
+                source = "AMBIGUOUS_MCP_REQUEST_FINGERPRINT",
+                confidence = "AMBIGUOUS"
+            )
         }
     }
 
     @Synchronized
     internal fun registerPendingRepeaterTitle(messageId: Int, title: String, source: String) {
-        pendingRepeaterTitles[messageId] = RepeaterTabAssociation(title.trim(), source)
+        registerPendingRepeaterAssociation(
+            messageId,
+            RepeaterTabAssociation(title = title.trim(), source = source, confidence = "PROBABLE")
+        )
+    }
+
+    @Synchronized
+    internal fun registerPendingRepeaterAssociation(messageId: Int, association: RepeaterTabAssociation) {
+        pendingRepeaterTitles[messageId] = association
         while (pendingRepeaterTitles.size > MAX_PENDING_REPEATER_REQUESTS) {
             pendingRepeaterTitles.remove(pendingRepeaterTitles.keys.first())
         }
@@ -250,8 +273,11 @@ data class CapturedExchangeSummary(
     val path: String?,
     val statusCode: Int?,
     val mimeType: String?,
+    val tabId: String? = null,
     val tabTitle: String? = null,
+    val tabGroup: String? = null,
     val tabTitleSource: String? = null,
+    val tabAssociationConfidence: String? = null,
     val requestLength: Int,
     val responseLength: Int
 )
@@ -268,8 +294,11 @@ internal fun CapturedExchange.summary() = CapturedExchangeSummary(
     path = path,
     statusCode = statusCode,
     mimeType = mimeType,
+    tabId = tabId,
     tabTitle = tabTitle,
+    tabGroup = tabGroup,
     tabTitleSource = tabTitleSource,
+    tabAssociationConfidence = tabAssociationConfidence,
     requestLength = request.length,
     responseLength = response.length
 )

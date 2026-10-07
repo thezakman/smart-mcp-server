@@ -158,12 +158,15 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
     }
 
     mcpTool<GetRepeaterTraffic>(
-        "Compact index of Repeater exchanges observed after this extension was loaded. Includes the live selected " +
-            "tab title captured when a request starts, with fingerprint fallback for MCP-created tabs, and can filter " +
-            "by tabTitle. No bodies; no traffic is sent.",
+        "Compact index of Repeater sends observed after this extension was loaded. Tab attribution prefers an exact " +
+            "editor/request identity, then active-tab or request-fingerprint evidence, and reports its confidence. " +
+            "Filter by stable session tabId or exact tabTitle; set tabTitleContains for substring matching. No bodies " +
+            "or target traffic.",
         behavior = READ_ONLY_TOOL
     ) {
-        capturedTrafficPage(ToolType.REPEATER, newestFirst, count, offset, config, tabTitle)
+        capturedTrafficPage(
+            ToolType.REPEATER, newestFirst, count, offset, config, tabId, tabTitle, tabTitleContains
+        )
     }
 
     mcpTool(
@@ -173,6 +176,31 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
         READ_ONLY_TOOL
     ) {
         Json.encodeToString(RepeaterUiInspector.Snapshot.serializer(), RepeaterUiInspector.snapshot(api))
+    }
+
+    mcpTool<GetRepeaterTabHistory>(
+        "Read Repeater request/response states observed through Burp editor bindings. Without snapshotId it returns " +
+            "compact metadata, filterable by stable session tabId or exact tabTitle. With snapshotId it returns the " +
+            "full request and response in bounded chunks. Existing tabs contribute their current state when Burp binds " +
+            "the editor; older back/forward entries appear only after Burp displays them. No target traffic is sent.",
+        behavior = READ_ONLY_TOOL
+    ) {
+        requireAccess(DataAccessType.HTTP_HISTORY)
+        if (!snapshotId.isNullOrBlank()) {
+            validateMessageWindow(contentOffset, maxMessageChars)
+            val exchange = RepeaterEditorObserver.bySnapshotId(snapshotId)
+                ?: error("No observed Repeater snapshot matches '$snapshotId'")
+            buildJsonObject {
+                put("summary", Json.encodeToJsonElement(exchange.summary()))
+                put("request", messageWindow(exchange.request, contentOffset, maxMessageChars, false, false))
+                put("response", messageWindow(exchange.response, contentOffset, maxMessageChars, false, false))
+                put("coverage", "Observed editor bindings only; native undisplayed back/forward history is unavailable")
+            }.toString()
+        } else {
+            validatePage(count, offset, 200)
+            val history = RepeaterEditorObserver.history(tabId, tabTitle, newestFirst)
+            jsonPage(history, count, offset) { Json.encodeToJsonElement(it.summary()) }
+        }
     }
 
     mcpTool<GetIntruderTraffic>(
@@ -310,15 +338,22 @@ private fun capturedTrafficPage(
     count: Int,
     offset: Int,
     config: McpConfig,
-    tabTitle: String? = null
+    tabId: String? = null,
+    tabTitle: String? = null,
+    tabTitleContains: Boolean = false
 ): String {
     validatePage(count, offset, 200)
     check(runBlocking { DataAccessSecurity.checkDataAccessPermission(DataAccessType.HTTP_HISTORY, config) }) {
         "Captured traffic access denied by Burp Suite"
     }
-    val items = TrafficStore.snapshot(tool, newestFirst).let { captured ->
-        if (tabTitle.isNullOrBlank()) captured
-        else captured.filter { it.tabTitle?.contains(tabTitle, ignoreCase = true) == true }
+    val items = TrafficStore.snapshot(tool, newestFirst).filter { exchange ->
+        val idMatches = tabId.isNullOrBlank() || exchange.tabId == tabId
+        val titleMatches = tabTitle.isNullOrBlank() || if (tabTitleContains) {
+            exchange.tabTitle?.contains(tabTitle, ignoreCase = true) == true
+        } else {
+            exchange.tabTitle?.equals(tabTitle, ignoreCase = true) == true
+        }
+        idMatches && titleMatches
     }
     return jsonPage(items, count, offset) {
         Json.encodeToJsonElement(it.summary())
@@ -614,7 +649,20 @@ data class GetOrganizerItemsById(
     val newestFirst: Boolean = true,
     val count: Int = 50,
     val offset: Int = 0,
-    val tabTitle: String? = null
+    val tabId: String? = null,
+    val tabTitle: String? = null,
+    val tabTitleContains: Boolean = false
+)
+
+@Serializable data class GetRepeaterTabHistory(
+    val snapshotId: String? = null,
+    val tabId: String? = null,
+    val tabTitle: String? = null,
+    val newestFirst: Boolean = true,
+    val count: Int = 50,
+    val offset: Int = 0,
+    val contentOffset: Int = 0,
+    val maxMessageChars: Int = 10_000
 )
 
 @Serializable data class GetIntruderTraffic(

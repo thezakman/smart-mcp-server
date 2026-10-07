@@ -12,6 +12,8 @@ import net.portswigger.mcp.providers.ProxyJarManager
 import net.portswigger.mcp.tools.TrafficStore
 import net.portswigger.mcp.tools.ToolAuditLog
 import net.portswigger.mcp.tools.CollaboratorCorrelationStore
+import net.portswigger.mcp.tools.RepeaterEditorObserver
+import net.portswigger.mcp.tools.RepeaterUiInspector
 
 @Suppress("unused")
 class ExtensionBase : BurpExtension {
@@ -21,6 +23,9 @@ class ExtensionBase : BurpExtension {
 
         val config = McpConfig(api.persistence().extensionData(), api.logging())
         val serverManager = KtorServerManager(api)
+
+        // Register before the MCP server starts so existing and newly created Repeater editors can be observed.
+        RepeaterEditorObserver.register(api)
 
         val proxyJarManager = ProxyJarManager(api.logging())
 
@@ -54,6 +59,8 @@ class ExtensionBase : BurpExtension {
             TrafficStore.shutdown()
             ToolAuditLog.clear()
             CollaboratorCorrelationStore.clear()
+            RepeaterEditorObserver.shutdown()
+            RepeaterUiInspector.clear()
             configUi.cleanup()
             config.cleanup()
         }
