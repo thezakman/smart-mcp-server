@@ -25,6 +25,7 @@ import kotlin.math.absoluteValue
 private const val MAX_CAPTURED_PER_TOOL = 1000
 private const val MAX_REPEATER_TAB_ASSOCIATIONS = 1000
 private const val MAX_PENDING_REPEATER_REQUESTS = 1000
+private const val PENDING_REPEATER_TTL_NANOS = 120_000_000_000L
 
 private inline fun <T> safeCapture(block: () -> T): T? = try {
     block()
@@ -58,7 +59,12 @@ object TrafficStore {
     private val buffers = ConcurrentHashMap<String, ToolBuffer>()
     private val nextMcpMessageId = AtomicInteger(-1)
     private val repeaterTabTitles = LinkedHashMap<String, LinkedHashSet<String>>()
-    private val pendingRepeaterTitles = LinkedHashMap<Int, RepeaterTabAssociation>()
+    private data class PendingRepeaterAssociation(
+        val association: RepeaterTabAssociation,
+        val createdAtNanos: Long
+    )
+
+    private val pendingRepeaterTitles = LinkedHashMap<Int, PendingRepeaterAssociation>()
 
     @Volatile
     private var registration: Registration? = null
@@ -87,15 +93,16 @@ object TrafficStore {
             override fun handleHttpRequestToBeSent(requestToBeSent: HttpRequestToBeSent): RequestToBeSentAction {
                 if (requestToBeSent.toolSource().toolType() == ToolType.REPEATER) {
                     val observed = safeCapture { RepeaterEditorObserver.resolve(requestToBeSent) }
-                    val selected = safeCapture { RepeaterUiInspector.selectedTab(api) }?.tab
+                    val selection = safeCapture { RepeaterUiInspector.selectedTab(api) }
+                    val selected = selection?.tab
                     val association = when {
                         observed?.confidence == "EXACT" -> observed
                         selected != null -> RepeaterTabAssociation(
                             tabId = selected.id,
                             title = selected.title,
                             groupTitle = selected.groupTitle,
-                            source = "BURP_SWING_ACTIVE_SELECTION_AT_REQUEST",
-                            confidence = "PROBABLE"
+                            source = selection.source ?: "BURP_SWING_ACTIVE_SELECTION_AT_REQUEST",
+                            confidence = selection.confidence ?: "PROBABLE"
                         )
                         else -> observed
                     }
@@ -183,15 +190,21 @@ object TrafficStore {
 
     @Synchronized
     internal fun registerPendingRepeaterAssociation(messageId: Int, association: RepeaterTabAssociation) {
-        pendingRepeaterTitles[messageId] = association
+        val now = System.nanoTime()
+        pendingRepeaterTitles.entries.removeIf { now - it.value.createdAtNanos > PENDING_REPEATER_TTL_NANOS }
+        pendingRepeaterTitles[messageId] = PendingRepeaterAssociation(association, now)
         while (pendingRepeaterTitles.size > MAX_PENDING_REPEATER_REQUESTS) {
             pendingRepeaterTitles.remove(pendingRepeaterTitles.keys.first())
         }
     }
 
     @Synchronized
-    internal fun consumePendingRepeaterTitle(messageId: Int): RepeaterTabAssociation? =
-        pendingRepeaterTitles.remove(messageId)
+    internal fun consumePendingRepeaterTitle(messageId: Int): RepeaterTabAssociation? {
+        val pending = pendingRepeaterTitles.remove(messageId) ?: return null
+        return pending.association.takeIf {
+            System.nanoTime() - pending.createdAtNanos <= PENDING_REPEATER_TTL_NANOS
+        }
+    }
 
     fun snapshot(tool: ToolType, newestFirst: Boolean): List<CapturedExchange> {
         val items = buffers[tool.name]?.snapshot().orEmpty()

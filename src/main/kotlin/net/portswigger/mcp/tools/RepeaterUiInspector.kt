@@ -62,14 +62,24 @@ internal object RepeaterUiInspector {
     data class Selection(
         val tab: Tab? = null,
         val ambiguous: Boolean = false,
-        val candidateIds: List<String> = emptyList()
+        val candidateIds: List<String> = emptyList(),
+        val source: String? = null,
+        val confidence: String? = null
     )
 
     private data class LocatedPane(
         val pane: JTabbedPane,
         val source: String,
         val windowTitle: String?,
-        val owner: Window?
+        val owner: Window?,
+        val activationPane: JTabbedPane? = null,
+        val activationIndex: Int? = null
+    )
+
+    private data class AttachedLocation(
+        val pane: JTabbedPane,
+        val suiteTabs: JTabbedPane,
+        val repeaterIndex: Int
     )
 
     fun snapshot(api: MontoyaApi): Snapshot = onEventDispatchThread {
@@ -98,7 +108,13 @@ internal object RepeaterUiInspector {
      * A startup binding walk has exact pane/index context. Normal sends prefer the currently active Burp window.
      */
     fun selectedTab(api: MontoyaApi): Selection = onEventDispatchThread {
-        walkSelection?.let { return@onEventDispatchThread Selection(tab = it) }
+        walkSelection?.let {
+            return@onEventDispatchThread Selection(
+                tab = it,
+                source = "BURP_SWING_WALK_SELECTION",
+                confidence = "EXACT"
+            )
+        }
 
         val panes = locatePanes(api)
         if (panes.isEmpty()) return@onEventDispatchThread Selection()
@@ -112,8 +128,17 @@ internal object RepeaterUiInspector {
 
         when (candidates.size) {
             0 -> Selection()
-            1 -> Selection(tab = candidates.single())
-            else -> Selection(ambiguous = true, candidateIds = candidates.map { it.id })
+            1 -> Selection(
+                tab = candidates.single(),
+                source = "BURP_SWING_ACTIVE_SELECTION",
+                confidence = "PROBABLE"
+            )
+            else -> Selection(
+                ambiguous = true,
+                candidateIds = candidates.map { it.id },
+                source = "BURP_SWING_MULTIPLE_SELECTIONS",
+                confidence = "AMBIGUOUS"
+            )
         }
     }
 
@@ -127,7 +152,13 @@ internal object RepeaterUiInspector {
         locatePanes(api).forEach { located ->
             val pane = located.pane
             val original = pane.selectedIndex
+            val originalActivation = located.activationPane?.selectedIndex
             try {
+                if (located.activationPane != null && located.activationIndex != null &&
+                    located.activationPane.selectedIndex != located.activationIndex
+                ) {
+                    located.activationPane.selectedIndex = located.activationIndex
+                }
                 for (index in 0 until pane.tabCount) {
                     walkSelection = tabAt(located, index, selected = true)
                     if (pane.selectedIndex != index) pane.selectedIndex = index
@@ -135,6 +166,11 @@ internal object RepeaterUiInspector {
                 }
             } finally {
                 if (original in 0 until pane.tabCount) pane.selectedIndex = original
+                if (located.activationPane != null && originalActivation != null &&
+                    originalActivation in 0 until located.activationPane.tabCount
+                ) {
+                    located.activationPane.selectedIndex = originalActivation
+                }
                 walkSelection = null
             }
         }
@@ -142,6 +178,10 @@ internal object RepeaterUiInspector {
     }
 
     internal fun findAttachedRepeaterPane(root: Container): JTabbedPane? {
+        return findAttachedRepeaterLocation(root)?.pane
+    }
+
+    private fun findAttachedRepeaterLocation(root: Container): AttachedLocation? {
         val suiteTabs = descendants(root)
             .filterIsInstance<JTabbedPane>()
             .firstOrNull { pane ->
@@ -151,7 +191,8 @@ internal object RepeaterUiInspector {
         val repeaterIndex = (0 until suiteTabs.tabCount)
             .firstOrNull { suiteTabs.getTitleAt(it).equals("Repeater", ignoreCase = true) }
             ?: return null
-        return findPrimaryRepeaterPane(suiteTabs.getComponentAt(repeaterIndex))
+        val pane = findPrimaryRepeaterPane(suiteTabs.getComponentAt(repeaterIndex)) ?: return null
+        return AttachedLocation(pane, suiteTabs, repeaterIndex)
     }
 
     internal fun snapshot(pane: JTabbedPane, source: String = "TEST"): Snapshot {
@@ -174,8 +215,15 @@ internal object RepeaterUiInspector {
     private fun locatePanes(api: MontoyaApi): List<LocatedPane> {
         val suiteFrame = api.userInterface().swingUtils().suiteFrame()
         val found = ArrayList<LocatedPane>()
-        findAttachedRepeaterPane(suiteFrame)?.let {
-            found += LocatedPane(it, "BURP_SWING_ATTACHED", suiteFrame.title, suiteFrame)
+        findAttachedRepeaterLocation(suiteFrame)?.let { attached ->
+            found += LocatedPane(
+                attached.pane,
+                "BURP_SWING_ATTACHED",
+                suiteFrame.title,
+                suiteFrame,
+                attached.suiteTabs,
+                attached.repeaterIndex
+            )
         }
 
         Window.getWindows().asSequence()

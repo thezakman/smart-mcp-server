@@ -36,6 +36,8 @@ data class RepeaterObservedExchange(
     val tabId: String,
     val tabTitle: String,
     val tabGroup: String? = null,
+    val associationSource: String,
+    val associationConfidence: String,
     val observedAt: String,
     val method: String?,
     val host: String?,
@@ -54,6 +56,8 @@ data class RepeaterObservedExchangeSummary(
     val tabId: String,
     val tabTitle: String,
     val tabGroup: String? = null,
+    val associationSource: String,
+    val associationConfidence: String,
     val observedAt: String,
     val method: String?,
     val host: String?,
@@ -71,6 +75,8 @@ internal fun RepeaterObservedExchange.summary() = RepeaterObservedExchangeSummar
     tabId = tabId,
     tabTitle = tabTitle,
     tabGroup = tabGroup,
+    associationSource = associationSource,
+    associationConfidence = associationConfidence,
     observedAt = observedAt,
     method = method,
     host = host,
@@ -130,10 +136,10 @@ internal object RepeaterEditorObserver {
         val identityBucket = byIdentity[System.identityHashCode(request)]
         if (identityBucket != null) {
             identityBucket.removeIf { it.request.get() == null }
-            val exact = identityBucket.filter { it.request.get() === request }.map { it.association }.distinct()
+            val exact = distinctTargets(identityBucket.filter { it.request.get() === request }.map { it.association })
             if (exact.size == 1) return exact.single().copy(
                 source = "BURP_EDITOR_REQUEST_IDENTITY",
-                confidence = "EXACT"
+                confidence = exact.single().confidence
             )
             if (exact.size > 1) return RepeaterTabAssociation(
                 source = "AMBIGUOUS_EDITOR_REQUEST_IDENTITY",
@@ -141,7 +147,7 @@ internal object RepeaterEditorObserver {
             )
         }
 
-        val candidates = byFingerprint[requestFingerprint(request)].orEmpty()
+        val candidates = distinctTargets(byFingerprint[requestFingerprint(request)].orEmpty())
         return when (candidates.size) {
             0 -> null
             1 -> candidates.first().copy(source = "BURP_EDITOR_REQUEST_FINGERPRINT", confidence = "PROBABLE")
@@ -196,12 +202,12 @@ internal object RepeaterEditorObserver {
             tabId = tab.id,
             title = tab.title,
             groupTitle = tab.groupTitle,
-            source = "BURP_EDITOR_BINDING",
-            confidence = "EXACT"
+            source = selection.source ?: "BURP_EDITOR_BINDING",
+            confidence = selection.confidence ?: "PROBABLE"
         )
         val request = runCatching { requestResponse.request() }.getOrNull() ?: return
         rememberAssociation(request, association)
-        rememberExchange(requestResponse, association)
+        if (association.confidence == "EXACT") rememberExchange(requestResponse, association)
     }
 
     @Synchronized
@@ -209,13 +215,14 @@ internal object RepeaterEditorObserver {
         val identityKey = System.identityHashCode(request)
         val identities = byIdentity.getOrPut(identityKey) { ArrayDeque() }
         identities.removeIf { it.request.get() == null }
-        if (identities.none { it.request.get() === request && it.association == association }) {
-            identities.addLast(IdentityObservation(WeakReference(request), association))
-        }
+        identities.removeIf { it.request.get() === request && sameTarget(it.association, association) }
+        identities.addLast(IdentityObservation(WeakReference(request), association))
         while (identities.size > MAX_ASSOCIATIONS_PER_FINGERPRINT) identities.removeFirst()
 
         val fingerprint = requestFingerprint(request)
-        byFingerprint.getOrPut(fingerprint) { LinkedHashSet() }.add(association)
+        val fingerprintAssociations = byFingerprint.getOrPut(fingerprint) { LinkedHashSet() }
+        fingerprintAssociations.removeIf { sameTarget(it, association) }
+        fingerprintAssociations.add(association)
         while (byFingerprint.size > MAX_REPEATER_OBSERVATIONS) byFingerprint.remove(byFingerprint.keys.first())
     }
 
@@ -232,6 +239,8 @@ internal object RepeaterEditorObserver {
             tabId = tabId,
             tabTitle = association.title.orEmpty(),
             tabGroup = association.groupTitle,
+            associationSource = association.source,
+            associationConfidence = association.confidence,
             observedAt = Instant.now().toString(),
             method = runCatching { request.method() }.getOrNull(),
             host = runCatching { request.httpService().host() }.getOrNull(),
@@ -265,6 +274,14 @@ internal object RepeaterEditorObserver {
             return false
         }
     }
+
+    private fun distinctTargets(associations: Collection<RepeaterTabAssociation>): List<RepeaterTabAssociation> =
+        associations.groupBy { Triple(it.tabId, it.title, it.groupTitle) }.values.map { sameTarget ->
+            sameTarget.maxByOrNull { if (it.confidence == "EXACT") 1 else 0 } ?: sameTarget.first()
+        }
+
+    private fun sameTarget(left: RepeaterTabAssociation, right: RepeaterTabAssociation): Boolean =
+        left.tabId == right.tabId && left.title == right.title && left.groupTitle == right.groupTitle
 
     private class RequestObserver(context: EditorCreationContext) : BaseObserver(context),
         ExtensionProvidedHttpRequestEditor {
