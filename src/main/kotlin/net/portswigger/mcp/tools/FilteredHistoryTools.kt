@@ -112,6 +112,7 @@ internal fun Server.registerFilteredHistoryTools(
             ?: error("No HTTP history item with Burp ID $index; it may have been removed")
         if (tabName == null) api.repeater().sendToRepeater(request)
         else api.repeater().sendToRepeater(request, tabName)
+        TrafficStore.registerRepeaterTab(request, tabName)
         "Opened Burp history item #$index in Repeater${tabName?.let { " as '$it'" }.orEmpty()}"
     }
 

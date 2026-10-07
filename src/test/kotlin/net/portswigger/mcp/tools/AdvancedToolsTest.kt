@@ -2,6 +2,7 @@ package net.portswigger.mcp.tools
 
 import burp.api.montoya.http.message.requests.HttpRequest
 import burp.api.montoya.http.message.responses.HttpResponse
+import burp.api.montoya.http.HttpService
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -13,6 +14,36 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AdvancedToolsTest {
+
+    @Test
+    fun `MCP-created Repeater title is associated with an unchanged request`() {
+        val service = mockk<HttpService>()
+        every { service.host() } returns "example.com"
+        every { service.port() } returns 443
+        every { service.secure() } returns true
+        val request = mockk<HttpRequest>()
+        every { request.httpService() } returns service
+        every { request.toString() } returns "GET /finding HTTP/2\r\nHost: example.com\r\n\r\n"
+
+        TrafficStore.registerRepeaterTab(request, "FIND_024")
+
+        val association = TrafficStore.resolveRepeaterTab(request)
+        assertEquals("FIND_024", association?.title)
+        assertEquals("MCP_REQUEST_FINGERPRINT", association?.source)
+    }
+
+    @Test
+    fun `conflicting Repeater titles for the same request are reported as ambiguous`() {
+        val request = mockk<HttpRequest>(relaxed = true)
+        every { request.toString() } returns "GET /same HTTP/1.1\r\nHost: example.com\r\n\r\n"
+
+        TrafficStore.registerRepeaterTab(request, "FIND_024")
+        TrafficStore.registerRepeaterTab(request, "CONTROL_024")
+
+        val association = TrafficStore.resolveRepeaterTab(request)
+        assertEquals(null, association?.title)
+        assertEquals("AMBIGUOUS_MCP_REQUEST_FINGERPRINT", association?.source)
+    }
 
     @Test
     fun `direct MCP exchanges receive persistent IDs and chunk metadata`() {
@@ -71,6 +102,7 @@ class AdvancedToolsTest {
     }
     @AfterEach
     fun cleanup() {
+        TrafficStore.shutdown()
         ToolAuditLog.clear()
         CollaboratorCorrelationStore.clear()
     }

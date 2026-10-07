@@ -16,12 +16,14 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
+import java.security.MessageDigest
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.absoluteValue
 
 private const val MAX_CAPTURED_PER_TOOL = 1000
+private const val MAX_REPEATER_TAB_ASSOCIATIONS = 1000
 
 private inline fun <T> safeCapture(block: () -> T): T? = try {
     block()
@@ -42,13 +44,21 @@ data class CapturedExchange(
     val path: String?,
     val statusCode: Int?,
     val mimeType: String?,
+    val tabTitle: String? = null,
+    val tabTitleSource: String? = null,
     val request: String,
     val response: String
+)
+
+internal data class RepeaterTabAssociation(
+    val title: String?,
+    val source: String
 )
 
 object TrafficStore {
     private val buffers = ConcurrentHashMap<String, ToolBuffer>()
     private val nextMcpMessageId = AtomicInteger(-1)
+    private val repeaterTabTitles = LinkedHashMap<String, LinkedHashSet<String>>()
 
     @Volatile
     private var registration: Registration? = null
@@ -81,6 +91,7 @@ object TrafficStore {
                 val tool = responseReceived.toolSource().toolType()
                 if (tool == ToolType.REPEATER || tool == ToolType.INTRUDER) {
                     val request = responseReceived.initiatingRequest()
+                    val tabAssociation = if (tool == ToolType.REPEATER) resolveRepeaterTab(request) else null
                     val exchange = CapturedExchange(
                             exchangeId = "${tool.name.lowercase()}-${responseReceived.messageId()}",
                             messageId = responseReceived.messageId(),
@@ -93,6 +104,8 @@ object TrafficStore {
                             path = safeCapture { request.path() },
                             statusCode = safeCapture { responseReceived.statusCode().toInt() },
                             mimeType = safeCapture { responseReceived.mimeType().name },
+                            tabTitle = tabAssociation?.title,
+                            tabTitleSource = tabAssociation?.source,
                             request = request.toString(),
                             response = responseReceived.toString()
                         )
@@ -102,6 +115,31 @@ object TrafficStore {
                 return ResponseReceivedAction.continueWith(responseReceived)
             }
         })
+    }
+
+    /**
+     * Remember the title supplied when MCP creates a Repeater tab. Montoya does not expose tab IDs, titles or
+     * existing tab enumeration, so later traffic can only be associated while its request remains unchanged.
+     * Conflicting titles for identical requests are retained and reported as ambiguous instead of being guessed.
+     */
+    @Synchronized
+    fun registerRepeaterTab(request: HttpRequest, tabName: String?) {
+        val title = tabName?.takeIf { it.isNotBlank() } ?: return
+        val fingerprint = requestFingerprint(request)
+        repeaterTabTitles.getOrPut(fingerprint) { LinkedHashSet() }.add(title)
+        while (repeaterTabTitles.size > MAX_REPEATER_TAB_ASSOCIATIONS) {
+            repeaterTabTitles.remove(repeaterTabTitles.keys.first())
+        }
+    }
+
+    @Synchronized
+    internal fun resolveRepeaterTab(request: HttpRequest): RepeaterTabAssociation? {
+        val titles = repeaterTabTitles[requestFingerprint(request)] ?: return null
+        return if (titles.size == 1) {
+            RepeaterTabAssociation(titles.first(), "MCP_REQUEST_FINGERPRINT")
+        } else {
+            RepeaterTabAssociation(null, "AMBIGUOUS_MCP_REQUEST_FINGERPRINT")
+        }
     }
 
     fun snapshot(tool: ToolType, newestFirst: Boolean): List<CapturedExchange> {
@@ -153,7 +191,20 @@ object TrafficStore {
         registration = null
         buffers.values.forEach { it.clear() }
         buffers.clear()
+        repeaterTabTitles.clear()
         nextMcpMessageId.set(-1)
+    }
+
+    private fun requestFingerprint(request: HttpRequest): String {
+        val canonical = buildString {
+            append(safeCapture { request.httpService().host() }.orEmpty().lowercase()).append(':')
+            append(safeCapture { request.httpService().port() } ?: -1).append(':')
+            append(safeCapture { request.httpService().secure() } ?: false).append('\n')
+            append(request.toString().replace("\r\n", "\n"))
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
     }
 }
 
@@ -170,6 +221,8 @@ data class CapturedExchangeSummary(
     val path: String?,
     val statusCode: Int?,
     val mimeType: String?,
+    val tabTitle: String? = null,
+    val tabTitleSource: String? = null,
     val requestLength: Int,
     val responseLength: Int
 )
@@ -186,6 +239,8 @@ internal fun CapturedExchange.summary() = CapturedExchangeSummary(
     path = path,
     statusCode = statusCode,
     mimeType = mimeType,
+    tabTitle = tabTitle,
+    tabTitleSource = tabTitleSource,
     requestLength = request.length,
     responseLength = response.length
 )

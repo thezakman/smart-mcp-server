@@ -158,10 +158,11 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
     }
 
     mcpTool<GetRepeaterTraffic>(
-        "Compact index of Repeater exchanges observed after this extension was loaded. No bodies; no traffic is sent.",
+        "Compact index of Repeater exchanges observed after this extension was loaded. Includes best-effort titles " +
+            "for unchanged tabs created by MCP and can filter them by tabTitle. No bodies; no traffic is sent.",
         behavior = READ_ONLY_TOOL
     ) {
-        capturedTrafficPage(ToolType.REPEATER, newestFirst, count, offset, config)
+        capturedTrafficPage(ToolType.REPEATER, newestFirst, count, offset, config, tabTitle)
     }
 
     mcpTool<GetIntruderTraffic>(
@@ -294,13 +295,22 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
 private object AdvancedToolsMarker
 
 private fun capturedTrafficPage(
-    tool: ToolType, newestFirst: Boolean, count: Int, offset: Int, config: McpConfig
+    tool: ToolType,
+    newestFirst: Boolean,
+    count: Int,
+    offset: Int,
+    config: McpConfig,
+    tabTitle: String? = null
 ): String {
     validatePage(count, offset, 200)
     check(runBlocking { DataAccessSecurity.checkDataAccessPermission(DataAccessType.HTTP_HISTORY, config) }) {
         "Captured traffic access denied by Burp Suite"
     }
-    return jsonPage(TrafficStore.snapshot(tool, newestFirst), count, offset) {
+    val items = TrafficStore.snapshot(tool, newestFirst).let { captured ->
+        if (tabTitle.isNullOrBlank()) captured
+        else captured.filter { it.tabTitle?.contains(tabTitle, ignoreCase = true) == true }
+    }
+    return jsonPage(items, count, offset) {
         Json.encodeToJsonElement(it.summary())
     }
 }
@@ -593,7 +603,8 @@ data class GetOrganizerItemsById(
 @Serializable data class GetRepeaterTraffic(
     val newestFirst: Boolean = true,
     val count: Int = 50,
-    val offset: Int = 0
+    val offset: Int = 0,
+    val tabTitle: String? = null
 )
 
 @Serializable data class GetIntruderTraffic(

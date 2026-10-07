@@ -190,12 +190,14 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         val fixedContent = normalizeHttpContent(content)
         val request = HttpRequest.httpRequest(toMontoyaService(), fixedContent)
         api.repeater().sendToRepeater(request, tabName)
+        TrafficStore.registerRepeaterTab(request, tabName)
     }
 
     if (fullCatalog) mcpUnitTool<CreateRepeaterTabHttp2>("Creates an HTTP/2 Repeater tab with the specified HTTP/2 request and optional tab name. Use this by default for modern web targets. Do NOT pass headers to the body parameter.") {
         val headerList = buildHttp2HeaderList(pseudoHeaders, headers)
         val request = HttpRequest.http2Request(toMontoyaService(), headerList, requestBody)
         api.repeater().sendToRepeater(request, tabName)
+        TrafficStore.registerRepeaterTab(request, tabName)
     }
 
     if (fullCatalog) mcpUnitTool<SendToIntruder>("Sends an HTTP request to Intruder with the specified HTTP request and optional tab name. Make sure to use carriage returns appropriately.") {
