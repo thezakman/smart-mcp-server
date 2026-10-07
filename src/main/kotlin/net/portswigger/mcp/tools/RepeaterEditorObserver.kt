@@ -104,6 +104,7 @@ internal object RepeaterEditorObserver {
 
     private val registered = AtomicBoolean(false)
     private val registrations = ArrayList<Registration>()
+    private val refreshTimers = ArrayList<Timer>()
     private val byIdentity = LinkedHashMap<Int, ArrayDeque<IdentityObservation>>()
     private val byFingerprint = LinkedHashMap<String, LinkedHashSet<RepeaterTabAssociation>>()
     private val exchanges = LinkedHashMap<String, RepeaterObservedExchange>()
@@ -127,6 +128,7 @@ internal object RepeaterEditorObserver {
                 .onFailure { api.logging().logToError("Repeater binding refresh failed: ${it.message}") }
         }.apply {
             isRepeats = false
+            refreshTimers += this
             start()
         }
     }
@@ -182,6 +184,8 @@ internal object RepeaterEditorObserver {
 
     @Synchronized
     fun shutdown() {
+        refreshTimers.forEach(Timer::stop)
+        refreshTimers.clear()
         registrations.forEach { registration -> runCatching { if (registration.isRegistered) registration.deregister() } }
         registrations.clear()
         byIdentity.clear()
@@ -194,7 +198,7 @@ internal object RepeaterEditorObserver {
     private fun observe(context: EditorCreationContext, requestResponse: HttpRequestResponse) {
         if (runCatching { context.toolSource().toolType() }.getOrNull() != ToolType.REPEATER) return
         val currentApi = api ?: return
-        val selection = runCatching { RepeaterUiInspector.selectedTab(currentApi) }.getOrNull() ?: return
+        val selection = runCatching { RepeaterUiInspector.editorBindingSelection(currentApi) }.getOrNull() ?: return
         val tab = selection.tab ?: return
         if (tab.title.isBlank()) return
 
@@ -276,12 +280,15 @@ internal object RepeaterEditorObserver {
     }
 
     private fun distinctTargets(associations: Collection<RepeaterTabAssociation>): List<RepeaterTabAssociation> =
-        associations.groupBy { Triple(it.tabId, it.title, it.groupTitle) }.values.map { sameTarget ->
+        associations.groupBy(::targetKey).values.map { sameTarget ->
             sameTarget.maxByOrNull { if (it.confidence == "EXACT") 1 else 0 } ?: sameTarget.first()
         }
 
+    private fun targetKey(association: RepeaterTabAssociation): String = association.tabId?.let { "id:$it" }
+        ?: "label:${association.title}\u0000${association.groupTitle}"
+
     private fun sameTarget(left: RepeaterTabAssociation, right: RepeaterTabAssociation): Boolean =
-        left.tabId == right.tabId && left.title == right.title && left.groupTitle == right.groupTitle
+        targetKey(left) == targetKey(right)
 
     private class RequestObserver(context: EditorCreationContext) : BaseObserver(context),
         ExtensionProvidedHttpRequestEditor {

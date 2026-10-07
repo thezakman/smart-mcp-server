@@ -60,6 +60,25 @@ class RepeaterEditorObserverTest {
         assertEquals("AMBIGUOUS", resolved?.confidence)
     }
 
+    @Test
+    fun `renaming the same stable tab updates its label without creating ambiguity`() {
+        val first = exchange("GET /rename HTTP/1.1\r\nHost: example.test\r\n\r\n", "A")
+        val unseen = exchange("GET /rename HTTP/1.1\r\nHost: example.test\r\n\r\n", "B")
+        RepeaterEditorObserver.observeForTest(
+            first,
+            RepeaterTabAssociation("tab-1", "OLD", source = "TEST", confidence = "EXACT")
+        )
+        RepeaterEditorObserver.observeForTest(
+            first,
+            RepeaterTabAssociation("tab-1", "NEW", source = "TEST", confidence = "EXACT")
+        )
+
+        val resolved = RepeaterEditorObserver.resolve(unseen.request())
+
+        assertEquals("NEW", resolved?.title)
+        assertEquals("PROBABLE", resolved?.confidence)
+    }
+
     private fun exchange(rawRequest: String, body: String): HttpRequestResponse {
         val service = mockk<HttpService>()
         every { service.host() } returns "example.test"

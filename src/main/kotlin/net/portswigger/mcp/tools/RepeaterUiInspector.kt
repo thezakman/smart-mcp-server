@@ -15,6 +15,7 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JTabbedPane
 import javax.swing.SwingUtilities
+import javax.swing.Timer
 import javax.swing.text.JTextComponent
 
 /**
@@ -30,6 +31,9 @@ internal object RepeaterUiInspector {
 
     @Volatile
     private var walkSelection: Tab? = null
+
+    @Volatile
+    private var activeWalk: BindingWalk? = null
 
     private val auxiliaryTabTitles = setOf(
         "beautify", "custom actions", "headers", "hex", "inspector", "params", "pretty", "raw", "render"
@@ -103,19 +107,8 @@ internal object RepeaterUiInspector {
         }
     }
 
-    /**
-     * Returns the selected tab only when its source pane can be identified without choosing arbitrarily.
-     * A startup binding walk has exact pane/index context. Normal sends prefer the currently active Burp window.
-     */
+    /** Returns the live selected tab without treating a background binding walk as evidence for a user send. */
     fun selectedTab(api: MontoyaApi): Selection = onEventDispatchThread {
-        walkSelection?.let {
-            return@onEventDispatchThread Selection(
-                tab = it,
-                source = "BURP_SWING_WALK_SELECTION",
-                confidence = "EXACT"
-            )
-        }
-
         val panes = locatePanes(api)
         if (panes.isEmpty()) return@onEventDispatchThread Selection()
         val activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow
@@ -142,39 +135,36 @@ internal object RepeaterUiInspector {
         }
     }
 
+    /** Editor callbacks fired by the controlled walk have exact pane/index context. */
+    fun editorBindingSelection(api: MontoyaApi): Selection = onEventDispatchThread {
+        walkSelection?.let {
+            return@onEventDispatchThread Selection(
+                tab = it,
+                source = "BURP_SWING_WALK_SELECTION",
+                confidence = "EXACT"
+            )
+        }
+        selectedTab(api)
+    }
+
     /**
      * Selects each currently discoverable Repeater tab once and restores every selection. Burp lazily binds editor
      * providers as tabs become visible, so this gives the observer a chance to capture the current request/response
      * of tabs that existed before the extension loaded. It never clicks Send or changes message contents.
      */
     fun refreshEditorBindings(api: MontoyaApi): Int = onEventDispatchThread {
-        var visited = 0
-        locatePanes(api).forEach { located ->
-            val pane = located.pane
-            val original = pane.selectedIndex
-            val originalActivation = located.activationPane?.selectedIndex
-            try {
-                if (located.activationPane != null && located.activationIndex != null &&
-                    located.activationPane.selectedIndex != located.activationIndex
-                ) {
-                    located.activationPane.selectedIndex = located.activationIndex
-                }
-                for (index in 0 until pane.tabCount) {
-                    walkSelection = tabAt(located, index, selected = true)
-                    if (pane.selectedIndex != index) pane.selectedIndex = index
-                    visited++
-                }
-            } finally {
-                if (original in 0 until pane.tabCount) pane.selectedIndex = original
-                if (located.activationPane != null && originalActivation != null &&
-                    originalActivation in 0 until located.activationPane.tabCount
-                ) {
-                    located.activationPane.selectedIndex = originalActivation
-                }
-                walkSelection = null
-            }
+        activeWalk?.finish()
+        val locations = locatePanes(api)
+        val steps = locations.flatMap { located ->
+            (0 until located.pane.tabCount).map { index -> BindingStep(located, index) }
         }
-        visited
+        if (steps.isEmpty()) return@onEventDispatchThread 0
+
+        BindingWalk(steps).also {
+            activeWalk = it
+            it.start()
+        }
+        steps.size
     }
 
     internal fun findAttachedRepeaterPane(root: Container): JTabbedPane? {
@@ -206,10 +196,75 @@ internal object RepeaterUiInspector {
         )
     }
 
-    internal fun clear() = synchronized(componentIds) {
-        componentIds.clear()
-        nextComponentId.set(1)
-        walkSelection = null
+    internal fun clear() = onEventDispatchThread {
+        activeWalk?.finish()
+        synchronized(componentIds) {
+            activeWalk = null
+            componentIds.clear()
+            nextComponentId.set(1)
+            walkSelection = null
+        }
+    }
+
+    private data class BindingStep(val located: LocatedPane, val index: Int)
+
+    /**
+     * Keep each selected tab active for one EDT cycle. Burp can defer editor-provider callbacks until after the
+     * selection event returns, so selecting every tab in one synchronous loop can restore the UI before it binds.
+     */
+    private class BindingWalk(private val steps: List<BindingStep>) {
+        private val paneSelections = IdentityHashMap<JTabbedPane, Int>()
+        private val activationSelections = IdentityHashMap<JTabbedPane, Int>()
+        private val timer = Timer(25) { advance() }
+        private var next = 0
+        private var finished = false
+
+        init {
+            steps.forEach { step ->
+                paneSelections.putIfAbsent(step.located.pane, step.located.pane.selectedIndex)
+                step.located.activationPane?.let { activation ->
+                    activationSelections.putIfAbsent(activation, activation.selectedIndex)
+                }
+            }
+            timer.isRepeats = true
+        }
+
+        fun start() {
+            advance()
+            if (!finished) timer.start()
+        }
+
+        private fun advance() {
+            if (finished) return
+            if (next >= steps.size) {
+                finish()
+                return
+            }
+            val step = steps[next++]
+            val located = step.located
+            located.activationPane?.let { activation ->
+                val activationIndex = located.activationIndex
+                if (activationIndex != null && activation.selectedIndex != activationIndex) {
+                    activation.selectedIndex = activationIndex
+                }
+            }
+            walkSelection = tabAt(located, step.index, selected = true)
+            if (located.pane.selectedIndex != step.index) located.pane.selectedIndex = step.index
+        }
+
+        fun finish() {
+            if (finished) return
+            finished = true
+            timer.stop()
+            walkSelection = null
+            paneSelections.entries.toList().asReversed().forEach { (pane, index) ->
+                if (index in 0 until pane.tabCount && pane.selectedIndex != index) pane.selectedIndex = index
+            }
+            activationSelections.entries.toList().asReversed().forEach { (pane, index) ->
+                if (index in 0 until pane.tabCount && pane.selectedIndex != index) pane.selectedIndex = index
+            }
+            if (activeWalk === this) activeWalk = null
+        }
     }
 
     private fun locatePanes(api: MontoyaApi): List<LocatedPane> {
@@ -279,8 +334,9 @@ internal object RepeaterUiInspector {
             val headerTexts = displayTexts(pane.getTabComponentAt(index))
             val childCount = headerTexts.firstNotNullOfOrNull { it.toIntOrNull() } ?: continue
             if (childCount > 0 && selectedIndex <= index + childCount) {
+                // A numeric ordinary tab (for example, Burp's default title "1") must not be mistaken for a
+                // group-count badge. Require a separate non-numeric label before reporting a group.
                 return headerTexts.firstOrNull { value -> value.toIntOrNull() == null && value.isNotBlank() }
-                    ?: tabTitle(pane, index).takeIf { it.isNotBlank() }
             }
         }
         return null

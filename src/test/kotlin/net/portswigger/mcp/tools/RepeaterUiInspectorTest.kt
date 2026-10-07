@@ -32,6 +32,7 @@ class RepeaterUiInspectorTest {
         assertTrue(snapshot.available)
         assertEquals(2, snapshot.selectedIndex)
         assertEquals(listOf("1", "TESTANDO 1", "FIND_024"), snapshot.tabs.map { it.title })
+        assertEquals(null, snapshot.tabs[1].groupTitle)
         assertFalse(snapshot.tabs[0].selected)
         assertTrue(snapshot.tabs[2].selected)
     }
