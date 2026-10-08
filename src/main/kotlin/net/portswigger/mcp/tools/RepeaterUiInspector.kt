@@ -37,6 +37,9 @@ internal object RepeaterUiInspector {
     @Volatile
     private var activeWalk: BindingWalk? = null
 
+    // Explicit navigation wins over the one-time startup editor-discovery walk.
+    private var navigationRequested = false
+
     private val auxiliaryTabTitles = setOf(
         "beautify", "custom actions", "headers", "hex", "inspector", "params", "pretty", "raw", "render"
     )
@@ -164,6 +167,7 @@ internal object RepeaterUiInspector {
      * of tabs that existed before the extension loaded. It never clicks Send or changes message contents.
      */
     fun refreshEditorBindings(api: MontoyaApi): Int = onEventDispatchThread {
+        if (navigationRequested) return@onEventDispatchThread 0
         activeWalk?.finish()
         val locations = locatePanes(api)
         val steps = locations.flatMap { located ->
@@ -176,6 +180,60 @@ internal object RepeaterUiInspector {
             it.start()
         }
         steps.size
+    }
+
+    internal fun prepareForNavigation() {
+        check(SwingUtilities.isEventDispatchThread())
+        navigationRequested = true
+        activeWalk?.finish()
+    }
+
+    fun selectTab(api: MontoyaApi, tabId: String, expectedTitle: String?): UiSelectionResult = UiNavigation.run {
+        require(tabId.isNotBlank() && tabId.length <= 100) { "Use a tabId from list_repeater_tabs" }
+        val candidates = locatePanes(api).flatMap { located ->
+            tabsFor(located).filter { it.id == tabId }.map { located to it }
+        }
+        check(candidates.size == 1) { "Repeater tab ID is missing or ambiguous; call list_repeater_tabs again" }
+        val (located, tab) = candidates.single()
+        val owner = located.owner ?: error("Repeater owner window is unavailable")
+        BurpUiNavigator.requireVisibleWindow(owner)
+        val content = located.pane.getComponentAt(tab.index)
+        validateTarget(located.pane, content, expectedTitle)
+        prepareForNavigation()
+        located.activationPane?.let { activation ->
+            val index = located.activationIndex ?: error("Repeater suite tab is unavailable")
+            check(index in 0 until activation.tabCount && activation.isEnabledAt(index)) { "Repeater suite tab is disabled" }
+            activation.selectedIndex = index
+        }
+        selectContent(located.pane, content, expectedTitle)
+        val verify: () -> UiSelectionResult = {
+            verifyContent(located.pane, content, expectedTitle)
+            check(content.isShowing) { "Repeater tab is not visible; inspect current UI before capturing" }
+            BurpUiNavigator.requireVisibleWindow(owner)
+            UiSelectionResult(tool = "REPEATER", tabId = tabId,
+                tabTitle = tabTitle(located.pane, located.pane.indexOfComponent(content)),
+                visible = true, windowTitle = located.windowTitle)
+        }
+        verify
+    }
+
+    internal fun selectContent(pane: JTabbedPane, content: Component, expectedTitle: String?) {
+        validateTarget(pane, content, expectedTitle)
+        pane.selectedComponent = content
+    }
+
+    internal fun verifyContent(pane: JTabbedPane, content: Component, expectedTitle: String?) {
+        validateTarget(pane, content, expectedTitle)
+        check(pane.selectedComponent === content) { "Repeater selection changed before confirmation" }
+    }
+
+    private fun validateTarget(pane: JTabbedPane, content: Component, expectedTitle: String?) {
+        val index = pane.indexOfComponent(content)
+        check(index >= 0) { "Repeater tab was closed before selection" }
+        check(pane.isEnabledAt(index)) { "Repeater tab is disabled" }
+        check(expectedTitle == null || tabTitle(pane, index) == expectedTitle) {
+            "Repeater title changed; refresh list_repeater_tabs before selecting"
+        }
     }
 
     internal fun findAttachedRepeaterPane(root: Container): JTabbedPane? {
@@ -219,6 +277,7 @@ internal object RepeaterUiInspector {
             componentIds.clear()
             nextComponentId.set(1)
             walkSelection = null
+            navigationRequested = false
         }
     }
 

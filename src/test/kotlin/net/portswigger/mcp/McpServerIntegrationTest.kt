@@ -13,6 +13,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInfo
 import java.net.ServerSocket
 import java.net.URI
 import java.net.http.HttpClient
@@ -45,7 +46,10 @@ class McpServerIntegrationTest {
     private val config = McpConfig(persistedObject, mockLogging)
 
     @BeforeEach
-    fun setup() {
+    fun setup(testInfo: TestInfo) {
+        if (testInfo.testMethod.get().name == "read only profile excludes navigation tools") {
+            every { persistedObject.getString("_toolProfile") } returns "READ_ONLY"
+        }
         serverManager.start(config) { state ->
             if (state is ServerState.Running) {
                 serverStarted = true
@@ -105,7 +109,13 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("get_proxy_http_history_summary"), "Core should expose history summary")
             assertTrue(toolNames.contains("get_proxy_http_history_regex"), "Core should expose regex history search")
             assertFalse(toolNames.contains("url_encode"), "Core should hide legacy utility tools")
-            assertTrue(tools.size in 25..40, "Core catalog should stay compact; got ${tools.size} tools")
+            assertTrue(tools.size in 25..43, "Core catalog should stay compact; got ${tools.size} tools")
+
+            listOf("select_burp_tool", "select_repeater_tab", "select_organizer_item").forEach { name ->
+                assertTrue(name in toolNames)
+                assertEquals(false, tools.single { it.name == name }.annotations?.readOnlyHint)
+                assertEquals(false, tools.single { it.name == name }.annotations?.openWorldHint)
+            }
 
             val burpGatedTools = setOf(
                 "send_http1_request",
@@ -132,6 +142,30 @@ class McpServerIntegrationTest {
             assertNotNull(pingResult, "Ping should return a result")
         } catch (e: Exception) {
             fail("Connection failed: ${e.message}")
+        }
+    }
+
+    @Test
+    fun `navigation tools reject invalid targets through MCP without accessing UI`() = runBlocking {
+        every { persistedObject.getBoolean("requireDataAccessApproval") } returns false
+        every { api.organizer().items() } returns emptyList()
+        client.connectToServer("http://127.0.0.1:$testPort")
+        val organizer = client.callTool("select_organizer_item", mapOf("id" to 999))
+        assertEquals(true, organizer?.isError)
+        assertTrue(organizer.toString().contains("No Organizer item"))
+        val repeater = client.callTool("select_repeater_tab", mapOf("tabId" to ""))
+        assertEquals(true, repeater?.isError)
+        verify(exactly = 0) { api.userInterface() }
+    }
+
+    @Test
+    fun `read only profile excludes navigation tools`() = runBlocking {
+        // The profile was set before server startup in setup.
+        client.connectToServer("http://127.0.0.1:$testPort")
+        val names = client.listTools().map { it.name }
+        assertTrue("list_repeater_tabs" in names)
+        listOf("select_burp_tool", "select_repeater_tab", "select_organizer_item").forEach {
+            assertFalse(it in names, "$it must be omitted in READ_ONLY")
         }
     }
 

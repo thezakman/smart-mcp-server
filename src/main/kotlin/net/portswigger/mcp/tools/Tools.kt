@@ -121,6 +121,7 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         readOnlyMode = readOnlyCatalog
     )
     registerAdvancedTools(api, config, readOnlyMode = readOnlyCatalog)
+    if (!readOnlyCatalog) registerUiNavigationTools(api, config)
 
     if (!readOnlyCatalog) mcpTool<SendHttp1Request>("Issues an HTTP/1.1 request and returns the response.", BURP_GATED_TOOL) {
         val allowed = runBlocking {

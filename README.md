@@ -5,7 +5,7 @@
 <h1 align="center">Smart Burp MCP Server</h1>
 
 <p align="center">
-  <strong>Extension 1.12.1</strong> &nbsp;·&nbsp;
+  <strong>Extension 1.13.0</strong> &nbsp;·&nbsp;
   <strong>Montoya API 2026.7 — latest official release</strong>
 </p>
 
@@ -24,7 +24,7 @@ response comparison, diagnostics and reviewed single-request mutations.
 The extension is built against
 [Montoya API 2026.7](https://github.com/PortSwigger/burp-extensions-montoya-api/releases/tag/2026.7), the latest
 official Montoya release published by PortSwigger. The Montoya version and the extension version are independent:
-Montoya identifies the Burp API compatibility level, while `1.12.1` identifies this Smart Burp MCP release.
+Montoya identifies the Burp API compatibility level, while `1.13.0` identifies this Smart Burp MCP release.
 
 For more information about the protocol visit: [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 
@@ -284,7 +284,7 @@ The default **Core** profile exposes the modern tools used for compact discovery
 analysis and reviewed sends. Select **Full compatibility** in Burp to additionally expose the overlapping legacy
 history tools, raw tab constructors, editor controls and encoding utilities.
 
-With Burp Suite Professional, version 1.12.1 exposes **39 tools** in the default Core profile. Scanner and
+With Burp Suite Professional, version 1.13.0 exposes **42 tools** in the default Core profile. Scanner and
 Collaborator account for the Professional-only entries, so the exact count can differ by Burp edition and selected
 tool profile. `get_mcp_diagnostics` reports the active profile, tool count and complete schema size at runtime.
 
@@ -326,6 +326,49 @@ thread; message processing runs on a bounded background queue, and UI queries ti
 of waiting indefinitely. Callbacks outside the event thread reuse only an already established exact request identity
 for history capture; otherwise that observation is skipped rather than attributed to a later tab selection. This can
 leave gaps in observed history. Queued observations are discarded on unload or when the queue is full.
+
+### Show evidence before capturing a screenshot
+
+Version **1.13.0** adds three local navigation tools in **Core** and **Full compatibility**:
+
+| Tool | Arguments | What it selects |
+| --- | --- | --- |
+| `select_repeater_tab` | `tabId`, optional `expectedTitle` | One existing Repeater tab; activates its attached Repeater pane or uses its detached window |
+| `select_organizer_item` | Native Organizer `id` | One matching row in the current collection, Contents view and filters; scrolls it into view |
+| `select_burp_tool` | `tool` enum | One attached suite section: `DASHBOARD`, `TARGET`, `PROXY`, `LOGGER`, `REPEATER`, `INTRUDER`, `SEQUENCER`, `DECODER`, `COMPARER`, `ORGANIZER` or `MCP` |
+
+These tools change local UI selection and are excluded from **Read-only** mode. They do not send requests,
+start scans, edit messages, create collections or replay history. They respect the corresponding project-data
+access approval setting. Tool annotations identify them as local, non-destructive UI writes.
+
+Use the two MCP servers together:
+
+1. Read `list_repeater_tabs` or `list_organizer_items` and obtain the actual session/native ID.
+2. Call `select_repeater_tab` or `select_organizer_item`. For example:
+
+   ```json
+   {"tabId": "repeater-tab-7", "expectedTitle": "Evidence"}
+   ```
+
+3. Check `selected: true`, `visible: true` and `verification: "SELECTION_RECHECKED_ON_EDT"`.
+4. Confirm that the intended content has rendered in the correct Burp window, then capture/save it with the
+   separate [mcp-screenshot](https://github.com/thezakman/mcp-screenshot) server.
+
+**Selection confirmation is not a screenshot or content verification.** Results explicitly return
+`contentVerified: false`: changing a tab does not guarantee a particular editor view, response version, foreground
+window or finished rendering. The screenshot server remains responsible for capture and evidence files.
+`select_burp_tool` only changes the suite section; it does not select an inner row, collection or editor view.
+
+Navigation uses a bounded Swing adapter because Montoya does not provide these selection methods. Calls are
+serialized, checked again on a subsequent UI event turn and time out after 1.5 seconds. Closed, renamed (when
+`expectedTitle` is supplied), filtered, disabled, missing or ambiguous targets fail explicitly. Organizer navigation
+requires the native English `#`, `Method` and `URL` table columns; unsupported layouts require manual navigation.
+It never searches other collections or changes filters. A timeout can occur after selection, so inspect the UI before
+retrying or capturing. Explicit navigation also stops the automatic Repeater startup walk from changing tabs again
+until extension reload. Editor callbacks never wait for navigation.
+
+Reload `build/libs/burp-mcp-all.jar` in Burp and reconnect the MCP client to expose the new tools. Reloading clears
+in-memory Repeater/Intruder captures and editor observations; preserve needed evidence first.
 
 ### A connected client is missing a tool
 

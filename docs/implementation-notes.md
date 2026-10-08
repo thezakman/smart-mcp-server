@@ -44,6 +44,23 @@ Group sends do not expose the originating member tab, so that case remains best-
 1,000-entry in-memory ring buffer. Registrations, title associations and buffers are cleared when the server or
 extension stops.
 
+## Local UI navigation (1.13.0)
+
+`select_repeater_tab`, `select_organizer_item` and `select_burp_tool` change only local selection. They are
+registered in Core/Full and excluded from Read-only. UI writes run through one serialized EDT dispatcher;
+verification happens on the next EDT turn, and the waiting MCP call has a 1.5-second timeout. A timed-out
+queued operation is cancelled before selection; an operation already executing may have changed the UI.
+Unload invalidates pending operations. Navigation is never invoked from editor-provider callbacks.
+
+Repeater tabs are resolved by session ID and component identity, with optional exact-title checking. Explicit
+navigation stops the startup binding walk. Organizer rows are resolved by native ID through the current sorted
+and filtered table view; ambiguous or hidden entries fail without changing collections or filters. Traversal and
+row scans are bounded, and unsupported Swing layouts fail explicitly.
+
+The response confirms selection, not rendered request/response content or foreground focus. Capture stays in the
+separate screenshot MCP after checking the intended Burp window and content. This release has automated Swing
+fixture and MCP protocol tests; live navigation in the installed Burp instance still requires reloading the new JAR.
+
 ## Mutation workflow
 
 Mutations are explicit and single-request only:

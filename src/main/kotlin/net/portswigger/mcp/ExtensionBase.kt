@@ -14,6 +14,7 @@ import net.portswigger.mcp.tools.ToolAuditLog
 import net.portswigger.mcp.tools.CollaboratorCorrelationStore
 import net.portswigger.mcp.tools.RepeaterEditorObserver
 import net.portswigger.mcp.tools.RepeaterUiInspector
+import net.portswigger.mcp.tools.UiNavigation
 
 @Suppress("unused")
 class ExtensionBase : BurpExtension {
@@ -55,6 +56,7 @@ class ExtensionBase : BurpExtension {
         api.userInterface().registerSuiteTab("MCP", configUi.component)
 
         api.extension().registerUnloadingHandler {
+            UiNavigation.cancelPending()
             serverManager.shutdown()
             TrafficStore.shutdown()
             ToolAuditLog.clear()
