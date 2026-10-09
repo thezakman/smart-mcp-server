@@ -20,7 +20,7 @@ class SwingUserApprovalHandler : UserApprovalHandler {
         return suspendCoroutine { continuation ->
             SwingUtilities.invokeLater {
                 val message = buildString {
-                    appendLine("An MCP client is requesting to send an HTTP request to:")
+                    appendLine("An MCP client is requesting to send target-bound traffic to:")
                     appendLine()
                     appendLine("Target: $hostname:$port")
                     appendLine()

@@ -18,6 +18,11 @@ internal val SERVER_INSTRUCTIONS = """
     Direct HTTP sends return a persistent in-session exchangeId and messageId. Retrieve every response chunk with
     get_captured_exchange_by_id, then save it to Organizer when it should become project evidence.
 
+    For WebSocket interaction, open one reviewed upgrade request with open_web_socket, use the returned sessionId,
+    send only one reviewed frame at a time, and poll get_web_socket_session_messages with afterMessageId. Replay a
+    captured frame only by its native Burp ID and explicit TEXT/BINARY type. Close sessions when finished. WebSocket
+    handshakes and frames remain subject to target approval, data access approval where applicable, and concurrency limits.
+
     Use compare_http_exchanges for pairs and compare_auth_controls for anonymous, invalid-token and valid-token
     controls without generating traffic. Preserve native Burp IDs and MCP exchange IDs in notes and results so
     findings remain traceable. Site Map keys are content-derived lookup keys.

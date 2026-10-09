@@ -5,7 +5,7 @@
 <h1 align="center">Smart Burp MCP Server</h1>
 
 <p align="center">
-  <strong>Extension 1.13.0</strong> &nbsp;·&nbsp;
+  <strong>Extension 1.14.0</strong> &nbsp;·&nbsp;
   <strong>Montoya API 2026.7 — latest official release</strong>
 </p>
 
@@ -24,7 +24,7 @@ response comparison, diagnostics and reviewed single-request mutations.
 The extension is built against
 [Montoya API 2026.7](https://github.com/PortSwigger/burp-extensions-montoya-api/releases/tag/2026.7), the latest
 official Montoya release published by PortSwigger. The Montoya version and the extension version are independent:
-Montoya identifies the Burp API compatibility level, while `1.13.0` identifies this Smart Burp MCP release.
+Montoya identifies the Burp API compatibility level, while `1.14.0` identifies this Smart Burp MCP release.
 
 For more information about the protocol visit: [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 
@@ -40,6 +40,7 @@ fork point; the upstream project may continue to evolve independently.
 | Client setup | Claude Desktop installer and manual stdio proxy extraction | Keeps both, adds shell-safe **Claude CLI**, and connects **Codex CLI directly over Streamable HTTP** without launching the proxy |
 | Proxy history | Full request/response pagination and basic regex search | Adds compact summaries, native Burp IDs, highlight colors, timing, MIME/size metadata, host/path/status/header/Trace ID/JSON filters, bounded regex work and stable keyset pagination |
 | Message detail | Bulk entries with a fixed output limit | Fetches selected HTTP and WebSocket messages by native ID with Unicode-safe chunks and explicit continuation offsets |
+| WebSocket interaction | Captured Proxy WebSocket history | Also opens approved WebSocket sessions through Burp, sends reviewed text/binary frames, polls bounded received messages, replays one captured frame by native ID and closes sessions explicitly |
 | Sensitive traffic | Captured messages returned by the original bulk tools | Keeps raw cookies, tokens and credentials intact by default; optional masking is explicit and tool-specific |
 | Site Map | No compact Site Map MCP workflow | Adds filtered compact indexing and content-derived SHA-256 keys with selective detail retrieval |
 | Organizer | Bulk read and regex search | Adds compact index/detail, native IDs, notes, highlight updates and saving existing captured exchanges with note and color without target traffic; Organizer Collections remain unavailable because Montoya does not expose their names or membership |
@@ -81,6 +82,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Compact Proxy, Site Map, Organizer, Repeater and Intruder indexes
 - Native Burp IDs and content-derived Site Map keys for traceable evidence retrieval
 - Bounded request/response chunks with credentials, cookies and tokens intact by default
+- Managed WebSocket sessions with approved handshakes, text/binary sends, received-message polling and native-ID frame replay
 - Persistent in-session exchange IDs for direct MCP sends, with chunked retrieval and Organizer handoff
 - Color, regex, scope, static-resource, host, path, method, status, MIME, header, Trace ID and JSON-content filters
 - Live enumeration of manual and MCP-created Repeater titles, groups and detached windows with stable session tab IDs
@@ -94,7 +96,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Read-only investigation, Core and Full compatibility tool profiles to control MCP catalog size and capabilities
 - Structured Proxy-history search with filter-bound keyset cursors, field projection and a total response budget
 - Automatic startup indexing of existing Proxy history plus incremental refreshes
-- Configurable concurrency limit for outbound HTTP requests and bounded concurrent history searches
+- Configurable concurrency limit for outbound HTTP/WebSocket operations and bounded concurrent history searches
 - Full raw HTTP messages exposed as on-demand MCP resources (`burp://proxy/{id}/{part}`)
 - Per-tool duration/output metrics and live catalog/schema size diagnostics
 
@@ -284,7 +286,7 @@ The default **Core** profile exposes the modern tools used for compact discovery
 analysis and reviewed sends. Select **Full compatibility** in Burp to additionally expose the overlapping legacy
 history tools, raw tab constructors, editor controls and encoding utilities.
 
-With Burp Suite Professional, version 1.13.0 exposes **42 tools** in the default Core profile. Scanner and
+With Burp Suite Professional, version 1.14.0 exposes **48 tools** in the default Core profile. Scanner and
 Collaborator account for the Professional-only entries, so the exact count can differ by Burp edition and selected
 tool profile. `get_mcp_diagnostics` reports the active profile, tool count and complete schema size at runtime.
 
@@ -427,6 +429,12 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 | `get_proxy_websocket_history` | Bounded WebSocket history with native message/connection IDs | Project scope; credentials intact; 20 items |
 | `get_proxy_websocket_history_regex` | Search WebSocket endpoint, payload and notes | Project scope; credentials intact; 20 items |
 | `get_web_socket_message_by_index` | Retrieve a complete WebSocket payload in bounded chunks by native ID | Original content; credentials and encoded data intact |
+| `open_web_socket` | Open a WebSocket from a complete reviewed HTTP upgrade request | Target approval; one handshake; no retry |
+| `list_web_socket_sessions` | List compact metadata for MCP-managed sessions | Includes retained closed sessions; no traffic |
+| `send_web_socket_message` | Send one text or Base64 binary frame on a managed session | Target approval; 256 KiB decoded maximum; no batching |
+| `replay_web_socket_message` | Send one captured history payload by native Burp ID | Explicit TEXT/BINARY type; history and target approvals; no retry |
+| `get_web_socket_session_messages` | Poll sent/received session frames after a stable message ID | 64 retained frames per session; 64 KiB stored per frame |
+| `close_web_socket` | Close one managed WebSocket | Idempotent for a retained session |
 | `create_repeater_tab_from_history` | Open the exact captured request in Repeater by native ID | Does not send the request |
 | `send_history_item_to_intruder` | Open the exact captured request in Intruder by native ID | Does not start an attack |
 | `replay_history_item` | Replay one captured request unchanged with the existing per-target approval | One request; no injection, batching or retries |
@@ -445,6 +453,40 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 | `send_mutated_request` | Send the exact reviewed mutation once | Preview hash and target approval required |
 | `get_mcp_diagnostics` | Show endpoints, runtime, catalog/schema cost, history index, per-tool output/timing, proxy and buffer status | No target traffic |
 | `get_mcp_action_log` | Show bounded local tool audit events and returned character counts | Never stores arguments or bodies |
+
+### WebSocket workflow
+
+WebSocket operations use Montoya's native extension WebSocket API, so the handshake and frames remain inside Burp.
+The six lifecycle tools are available in **Core** and **Full compatibility**. The **Read-only investigation** profile
+keeps only `list_web_socket_sessions` and `get_web_socket_session_messages`; it omits opening, sending, replaying and
+closing tools.
+
+1. Prepare a complete upgrade request and call `open_web_socket` with its target service:
+
+   ```json
+   {
+     "targetHostname": "api.example.com",
+     "targetPort": 443,
+     "usesHttps": true,
+     "upgradeRequest": "GET /socket HTTP/1.1\r\nHost: api.example.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: <reviewed key>\r\n\r\n"
+   }
+   ```
+
+2. Keep the returned `sessionId`. Send one frame at a time with `send_web_socket_message`. Text is passed directly;
+   binary input must be standard Base64.
+3. Poll `get_web_socket_session_messages` and continue from its `nextAfterMessageId`. Sent and received messages are
+   ordered together and record direction, type, encoding, size and explicit truncation.
+4. To reuse captured Proxy history, call `replay_web_socket_message` with its native message `sourceId`, destination
+   `sessionId` and explicit `TEXT` or `BINARY`. Proxy history does not expose the original frame type. A captured
+   server-to-client payload is rejected by default; replaying it toward the server requires
+   `allowServerToClientSource=true`.
+5. Call `close_web_socket` when finished.
+
+Opening, sending and replaying reuse the existing per-target approval and outbound concurrency limit. Replay also
+uses the WebSocket-history approval. There are no automatic retries or frame batches. At most 16 sessions remain
+open simultaneously; up to 32 open/closed sessions and 64 messages per session are retained in memory. Outbound
+frames are limited to 256 KiB decoded. Captured messages store at most 64 KiB and return `truncated: true` with the
+original size when larger. Stopping or reloading the MCP closes every managed WebSocket and clears this state.
 
 The summary/color/regex variants and legacy bulk tools remain available in **Full compatibility**:
 `get_proxy_http_history_summary`, `get_requests_by_color`, `get_request_by_index`, `get_proxy_http_history_regex`,
@@ -541,7 +583,7 @@ rewriting. `build`, `shadowJar` and the compatible `embedProxyJar` entry point a
 ### Permissions and data handling
 
 - Project-data reads use Burp's HTTP history, WebSocket history and Organizer approval controls.
-- Target-bound sends use the existing per-host approval and auto-approved target list.
+- Target-bound HTTP and WebSocket sends use the existing per-host approval and auto-approved target list.
 - Read-only tools do not generate target traffic. Creating a Repeater or Intruder tab also does not send it.
 - Captured authentication material is returned unchanged by default. `redactSecrets=true` is available only on
   tools that explicitly expose that option.
@@ -551,6 +593,7 @@ rewriting. `build`, `shadowJar` and the compatible `embedProxyJar` entry point a
   MCP server or extension stops.
 - Repeater editor observations and title associations are memory-only, bounded to 1,000 entries per index and cleared
   when the extension unloads. They contain the observed request/response needed by `get_repeater_tab_history`.
+- MCP-managed WebSocket sessions are memory-only and are closed when the MCP stops or the extension unloads.
 - Structured history searches reuse an incremental metadata index and allow at most two simultaneous heavy searches;
   additional calls receive a structured retryable `BUSY` error instead of consuming an unbounded worker queue.
 

@@ -60,7 +60,7 @@ class ServerConfigurationPanel(
         ) { config.configEditingTooling = it }
 
         val httpRequestApprovalCheckBox = createStandardCheckBox(
-            "Require approval for HTTP requests", config.requireHttpRequestApproval
+            "Require approval for HTTP and WebSocket requests", config.requireHttpRequestApproval
         ) { config.requireHttpRequestApproval = it }
 
         val dataAccessApprovalCheckBox = createDataAccessApprovalCheckBox()
@@ -238,7 +238,7 @@ class ServerConfigurationPanel(
     private fun createConcurrencySelector(): JPanel {
         val spinner = JSpinner(SpinnerNumberModel(config.maxConcurrentRequests, 1, 16, 1)).apply {
             font = Design.Typography.bodyMedium
-            toolTipText = "Maximum simultaneous target-bound HTTP requests. Applies after server restart."
+            toolTipText = "Maximum simultaneous target-bound HTTP and WebSocket operations. Applies after server restart."
             addChangeListener { config.maxConcurrentRequests = value as Int }
             preferredSize = Dimension(96, preferredSize.height)
             maximumSize = preferredSize

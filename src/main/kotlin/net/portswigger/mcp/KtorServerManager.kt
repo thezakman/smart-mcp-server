@@ -20,6 +20,7 @@ import kotlinx.serialization.json.Json
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.tools.SERVER_INSTRUCTIONS
 import net.portswigger.mcp.tools.TrafficStore
+import net.portswigger.mcp.tools.WebSocketSessionStore
 import net.portswigger.mcp.tools.HistoryMetadataIndex
 import net.portswigger.mcp.tools.OutboundRequestGate
 import net.portswigger.mcp.tools.registerHistoryResources
@@ -41,6 +42,7 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
             try {
                 server?.stop(1000, 5000)
                 server = null
+                WebSocketSessionStore.closeAll()
 
                 val mcpServer = Server(
                     serverInfo = Implementation(
@@ -153,6 +155,7 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                     e.addSuppressed(cleanupError)
                 }
                 TrafficStore.shutdown()
+                WebSocketSessionStore.closeAll()
                 HistoryMetadataIndex.clear()
                 api.logging().logToError(e)
                 publish(ServerState.Failed(e), callback)
@@ -168,6 +171,7 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
                 server?.stop(1000, 5000)
                 server = null
                 TrafficStore.shutdown()
+                WebSocketSessionStore.closeAll()
                 HistoryMetadataIndex.clear()
                 api.logging().logToOutput("Stopped MCP server")
                 publish(ServerState.Stopped, callback)
@@ -182,6 +186,7 @@ class KtorServerManager(private val api: MontoyaApi) : ServerManager {
         server?.stop(1000, 5000)
         server = null
         TrafficStore.shutdown()
+        WebSocketSessionStore.closeAll()
         HistoryMetadataIndex.clear()
 
         executor.shutdown()

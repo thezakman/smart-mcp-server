@@ -3,8 +3,22 @@ package net.portswigger.mcp
 import burp.api.montoya.MontoyaApi
 import burp.api.montoya.logging.Logging
 import burp.api.montoya.persistence.PersistedObject
+import burp.api.montoya.core.Registration
+import burp.api.montoya.core.ByteArray as MontoyaByteArray
+import burp.api.montoya.http.HttpService
+import burp.api.montoya.http.message.requests.HttpRequest as MontoyaHttpRequest
+import burp.api.montoya.websocket.WebSockets
+import burp.api.montoya.websocket.extension.ExtensionWebSocket
+import burp.api.montoya.websocket.extension.ExtensionWebSocketCreation
+import burp.api.montoya.websocket.extension.ExtensionWebSocketCreationStatus
+import burp.api.montoya.proxy.ProxyWebSocketMessage
+import burp.api.montoya.websocket.Direction
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
+import io.mockk.runs
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -19,6 +33,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.util.Optional
 
 class McpServerIntegrationTest {
     private val client = TestSseMcpClient()
@@ -109,13 +124,17 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("get_proxy_http_history_summary"), "Core should expose history summary")
             assertTrue(toolNames.contains("get_proxy_http_history_regex"), "Core should expose regex history search")
             assertFalse(toolNames.contains("url_encode"), "Core should hide legacy utility tools")
-            assertTrue(tools.size in 25..43, "Core catalog should stay compact; got ${tools.size} tools")
+            assertTrue(tools.size in 31..49, "Core catalog should stay compact; got ${tools.size} tools")
 
             listOf("select_burp_tool", "select_repeater_tab", "select_organizer_item").forEach { name ->
                 assertTrue(name in toolNames)
                 assertEquals(false, tools.single { it.name == name }.annotations?.readOnlyHint)
                 assertEquals(false, tools.single { it.name == name }.annotations?.openWorldHint)
             }
+            listOf(
+                "open_web_socket", "list_web_socket_sessions", "send_web_socket_message",
+                "replay_web_socket_message", "get_web_socket_session_messages", "close_web_socket"
+            ).forEach { name -> assertTrue(name in toolNames, "Core should expose $name") }
 
             val burpGatedTools = setOf(
                 "send_http1_request",
@@ -125,7 +144,10 @@ class McpServerIntegrationTest {
                 "set_project_options",
                 "set_user_options"
             )
-            burpGatedTools.forEach { name ->
+            val targetBoundTools = burpGatedTools + setOf(
+                "open_web_socket", "send_web_socket_message", "replay_web_socket_message"
+            )
+            targetBoundTools.forEach { name ->
                 assertNull(
                     tools.single { it.name == name }.annotations,
                     "$name must defer approval to the Burp UI instead of requesting client approval"
@@ -159,14 +181,95 @@ class McpServerIntegrationTest {
     }
 
     @Test
+    fun `websocket lifecycle works through MCP without external traffic`() = runBlocking {
+        every { persistedObject.getBoolean("requireHttpRequestApproval") } returns false
+        every { persistedObject.getBoolean("requireDataAccessApproval") } returns false
+        val webSockets = mockk<WebSockets>()
+        val creation = mockk<ExtensionWebSocketCreation>()
+        val socket = mockk<ExtensionWebSocket>()
+        val registration = mockk<Registration>()
+        every { api.websockets() } returns webSockets
+        every { webSockets.createWebSocket(any<burp.api.montoya.http.message.requests.HttpRequest>()) } returns creation
+        every { creation.status() } returns ExtensionWebSocketCreationStatus.SUCCESS
+        every { creation.webSocket() } returns Optional.of(socket)
+        every { creation.upgradeResponse() } returns Optional.empty()
+        every { socket.registerMessageHandler(any()) } returns registration
+        every { socket.sendTextMessage(any()) } just runs
+        every { socket.close() } just runs
+        every { registration.isRegistered } returns true
+        every { registration.deregister() } just runs
+
+        val service = mockk<HttpService>()
+        val request = mockk<MontoyaHttpRequest>()
+        mockkStatic(HttpService::class)
+        mockkStatic(MontoyaHttpRequest::class)
+        every { HttpService.httpService("127.0.0.1", 80, false) } returns service
+        every { MontoyaHttpRequest.httpRequest(service, any<String>()) } returns request
+        every { request.url() } returns "ws://127.0.0.1/socket"
+
+        try {
+            client.connectToServer("http://127.0.0.1:$testPort")
+            val opened = client.callTool("open_web_socket", mapOf(
+                "targetHostname" to "127.0.0.1", "targetPort" to 80, "usesHttps" to false,
+                "upgradeRequest" to "GET /socket HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
+            ))
+            assertEquals(false, opened?.isError, opened.toString())
+            val sessionId = Regex("ws-[0-9a-f-]{36}").find(opened.toString())?.value
+            assertNotNull(sessionId, opened.toString())
+
+            val sent = client.callTool("send_web_socket_message", mapOf(
+                "sessionId" to sessionId!!, "type" to "TEXT", "payload" to "hello"
+            ))
+            assertEquals(false, sent?.isError, sent.toString())
+            verify(exactly = 1) { socket.sendTextMessage("hello") }
+
+            val malformedBinary = client.callTool("send_web_socket_message", mapOf(
+                "sessionId" to sessionId, "type" to "BINARY", "payload" to "not-base64!"
+            ))
+            assertEquals(true, malformedBinary?.isError)
+
+            val sourcePayload = mockk<MontoyaByteArray>()
+            every { sourcePayload.bytes } returns "server-frame".toByteArray()
+            every { sourcePayload.toString() } returns "server-frame"
+            val source = mockk<ProxyWebSocketMessage>()
+            every { source.id() } returns 71
+            every { source.direction() } returns Direction.SERVER_TO_CLIENT
+            every { source.payload() } returns sourcePayload
+            every { api.proxy().webSocketHistory() } returns listOf(source)
+            val guardedReplay = client.callTool("replay_web_socket_message", mapOf(
+                "sessionId" to sessionId, "sourceId" to 71, "type" to "TEXT"
+            ))
+            assertEquals(true, guardedReplay?.isError)
+            val replayed = client.callTool("replay_web_socket_message", mapOf(
+                "sessionId" to sessionId, "sourceId" to 71, "type" to "TEXT",
+                "allowServerToClientSource" to true
+            ))
+            assertEquals(false, replayed?.isError, replayed.toString())
+            verify(exactly = 1) { socket.sendTextMessage("server-frame") }
+
+            val closed = client.callTool("close_web_socket", mapOf("sessionId" to sessionId))
+            assertEquals(false, closed?.isError, closed.toString())
+            verify(exactly = 1) { socket.close() }
+        } finally {
+            unmockkStatic(MontoyaHttpRequest::class)
+            unmockkStatic(HttpService::class)
+        }
+    }
+
+    @Test
     fun `read only profile excludes navigation tools`() = runBlocking {
         // The profile was set before server startup in setup.
         client.connectToServer("http://127.0.0.1:$testPort")
         val names = client.listTools().map { it.name }
         assertTrue("list_repeater_tabs" in names)
-        listOf("select_burp_tool", "select_repeater_tab", "select_organizer_item").forEach {
+        listOf(
+            "select_burp_tool", "select_repeater_tab", "select_organizer_item",
+            "open_web_socket", "send_web_socket_message", "replay_web_socket_message", "close_web_socket"
+        ).forEach {
             assertFalse(it in names, "$it must be omitted in READ_ONLY")
         }
+        assertTrue("list_web_socket_sessions" in names)
+        assertTrue("get_web_socket_session_messages" in names)
     }
 
     @Test
