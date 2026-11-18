@@ -5,7 +5,7 @@
 <h1 align="center">Smart Burp MCP Server</h1>
 
 <p align="center">
-  <strong>Extension 1.14.0</strong> &nbsp;·&nbsp;
+  <strong>Extension 1.14.1</strong> &nbsp;·&nbsp;
   <strong>Montoya API 2026.7 — latest official release</strong>
 </p>
 
@@ -24,7 +24,7 @@ response comparison, diagnostics and reviewed single-request mutations.
 The extension is built against
 [Montoya API 2026.7](https://github.com/PortSwigger/burp-extensions-montoya-api/releases/tag/2026.7), the latest
 official Montoya release published by PortSwigger. The Montoya version and the extension version are independent:
-Montoya identifies the Burp API compatibility level, while `1.14.0` identifies this Smart Burp MCP release.
+Montoya identifies the Burp API compatibility level, while `1.14.1` identifies this Smart Burp MCP release.
 
 For more information about the protocol visit: [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 
@@ -286,7 +286,7 @@ The default **Core** profile exposes the modern tools used for compact discovery
 analysis and reviewed sends. Select **Full compatibility** in Burp to additionally expose the overlapping legacy
 history tools, raw tab constructors, editor controls and encoding utilities.
 
-With Burp Suite Professional, version 1.14.0 exposes **48 tools** in the default Core profile. Scanner and
+With Burp Suite Professional, version 1.14.1 exposes **49 tools** in the default Core profile. Scanner and
 Collaborator account for the Professional-only entries, so the exact count can differ by Burp edition and selected
 tool profile. `get_mcp_diagnostics` reports the active profile, tool count and complete schema size at runtime.
 
@@ -675,3 +675,11 @@ The tool name is auto-derived from its parameters data class. A description is a
 a string or a `List<ContentBlock>` to provide data back to the LLM.
 
 Extend the Paginated interface to add auto-pagination support.
+
+## Screenshot evidence with mcp-screenshot
+
+**Optional integration:** both projects work independently. No screenshot companion is needed to start Burp MCP or use any native investigation/evidence tool. For image requests, if both are connected to the AI client, start with Burp's `get_evidence_capture_guide` and the companion's `get_capture_guide` (mcp-screenshot 0.8.2+). Burp identifies/selects native items; the companion handles OS permissions, frozen previews, interactive crops and local PNG/JSON evidence. The AI coordinates both; this extension does not spawn a capture service or make nested MCP calls. Check the connected companion version and guide rather than assuming the behavior of a local build. In mcp-screenshot 0.8.3, saving uses the approved frozen preview and its original capture timestamp; subsequent Burp changes are not included. Use **Atualizar prévia** to clear the previous crop and review current content before saving. For older or unknown versions, follow that connected server’s guidance and always inspect the saved PNG.
+
+Use `list_repeater_tabs` + `select_repeater_tab` for exact Repeater titles, `select_organizer_item` for native Organizer IDs in the visible collection, or `select_burp_tool` for top-level tabs such as MCP. Navigation results include a next-step reminder and keep `contentVerified=false`. Inspect the screenshot pixels: UI selection alone does not prove the requested content is rendered.
+
+Recompute content-fitted crops for each payload/response and leave profile names unset unless a fixed region was explicitly requested. Let the user confirm/adjust. Reuse the same companion connection between preview and selector. Inspect saved images, use duplicate guards for batches, and return real evidence IDs/paths. If the screenshot companion or image-viewing capability is absent, offer manual OS capture or another available screenshot tool and continue native Burp operations; do not demand installation or claim an image was captured. The guide is available in Core, Full and Read-only; navigation remains excluded from Read-only.

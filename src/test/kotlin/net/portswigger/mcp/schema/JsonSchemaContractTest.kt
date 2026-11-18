@@ -1,14 +1,47 @@
 package net.portswigger.mcp.schema
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import net.portswigger.mcp.tools.coerceIntegralArguments
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class JsonSchemaContractTest {
+    @Serializable
+    private data class LongInput(val id: Long)
+
+    @Test
+    fun `large integers and integral decimals retain their exact value`() {
+        for ((raw, expected) in listOf(
+            "9007199254740993" to 9007199254740993L,
+            "9007199254740993.0" to 9007199254740993L,
+            "9223372036854775807" to Long.MAX_VALUE,
+            "-9223372036854775808.0" to Long.MIN_VALUE,
+            "5e2" to 500L
+        )) {
+            val input = Json.parseToJsonElement("{\"id\":$raw}").jsonObject
+            val normalized = coerceIntegralArguments(input, LongInput::class)
+            assertEquals(expected, Json.decodeFromJsonElement(LongInput.serializer(), normalized).id, raw)
+        }
+    }
+
+    @Test
+    fun `fractional and overflowing integers are rejected without rounding or clamping`() {
+        for (raw in listOf("1.0000000000000001", "9223372036854775808", "-9223372036854775809", "1e1000000000")) {
+            val input = Json.parseToJsonElement("{\"id\":$raw}").jsonObject
+            val normalized = coerceIntegralArguments(input, LongInput::class)
+            assertEquals(input, normalized)
+            assertThrows(SerializationException::class.java) {
+                Json.decodeFromJsonElement(LongInput.serializer(), normalized)
+            }
+        }
+    }
+
     @Serializable
     private data class Input(
         @ToolField("Number of items.", minimum = 1, maximum = 100, example = "20")

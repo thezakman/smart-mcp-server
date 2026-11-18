@@ -7,6 +7,7 @@ import java.awt.Frame
 import java.awt.Window
 import javax.swing.JTabbedPane
 import javax.swing.JTable
+import javax.swing.table.TableColumn
 
 /** Best-effort Swing navigation isolated from the data API; never invokes buttons or edits messages. */
 internal object BurpUiNavigator {
@@ -50,8 +51,8 @@ internal object BurpUiNavigator {
             check(target.pane.selectedComponent === target.content && target.content.isShowing) {
                 "Organizer is no longer visible; inspect UI before capturing"
             }
-            selection.verify()
             check(selection.table.isShowing) { "Organizer item table is not visible" }
+            selection.verifyVisibleRow()
             requireVisibleWindow(frame)
             UiSelectionResult(tool = "ORGANIZER", organizerItemId = id, visible = true, windowTitle = frame.title)
         }
@@ -83,38 +84,64 @@ internal object BurpUiNavigator {
         }
     }
 
-    internal data class OrganizerRow(val table: JTable, val idColumn: Int, val id: Int) {
+    internal data class OrganizerRow(val table: JTable, val idColumn: TableColumn, val id: Int) {
+        private val sourceModel = table.model
+        private fun currentIdColumn(): Int {
+            check(table.model === sourceModel) { "Organizer table model changed; locate the item again" }
+            val column = (0 until table.columnCount).singleOrNull { table.columnModel.getColumn(it) === idColumn }
+            check(column != null && table.getColumnName(column).trim() == "#") {
+                "Organizer ID column changed or was removed; locate the item again"
+            }
+            return column
+        }
         private fun matchingRows(): List<Int> {
             check(table.rowCount <= 10_000) { "Organizer table exceeds the navigation scan limit; narrow its filters first" }
-            return (0 until table.rowCount).filter { row -> nativeId(table.getValueAt(row, idColumn)) == id }
+            val column = currentIdColumn()
+            return (0 until table.rowCount).asSequence()
+                .filter { row -> nativeId(table.getValueAt(row, column)) == id }.take(2).toList()
         }
         fun select() {
             check(!table.isEditing) { "Finish editing the Organizer table before navigating" }
             val rows = matchingRows()
             check(rows.size == 1) { "Organizer item changed or was filtered out before selection" }
             table.setRowSelectionInterval(rows.single(), rows.single())
-            table.scrollRectToVisible(table.getCellRect(rows.single(), idColumn, true))
+            table.scrollRectToVisible(table.getCellRect(rows.single(), currentIdColumn(), true))
         }
         fun verify() {
-            check(table.selectedRowCount == 1 && table.selectedRow >= 0 &&
-                nativeId(table.getValueAt(table.selectedRow, idColumn)) == id) {
+            check(!table.isEditing) { "Organizer table entered editing; finish editing before capturing" }
+            val matches = matchingRows()
+            check(matches.size == 1 && table.selectedRowCount == 1 && table.selectedRow == matches.single()) {
                 "Organizer selection changed before confirmation; inspect UI before capturing"
+            }
+        }
+
+        fun verifyVisibleRow() {
+            verify()
+            val idCell = table.getCellRect(table.selectedRow, currentIdColumn(), true)
+            check(!idCell.isEmpty && table.visibleRect.intersects(idCell)) {
+                "Organizer item ID is outside the visible table area; select the item again before capturing"
             }
         }
     }
 
     internal fun findOrganizerRow(root: Component, id: Int): OrganizerRow {
+        var remainingRows = 10_000
         val matches = visibleDescendants(root).filterIsInstance<JTable>().flatMap { table ->
             val names = (0 until table.columnCount).map { table.getColumnName(it).trim() }
-            if ("Method" !in names || "URL" !in names) return@flatMap emptySequence()
+            // Burp uses both a combined URL and a split Host/Path layout across versions.
+            val hasRequestLocation = "URL" in names || ("Host" in names && "Path" in names)
+            if ("Method" !in names || !hasRequestLocation) return@flatMap emptySequence()
             check(table.rowCount <= 10_000) { "Organizer table exceeds the navigation scan limit; narrow its filters first" }
             val columns = (0 until table.columnCount).filter { table.getColumnName(it).trim() == "#" }
             if (columns.size != 1) emptySequence() else {
                 val column = columns.single()
-                val rows = (0 until table.rowCount).filter { nativeId(table.getValueAt(it, column)) == id }
-                rows.asSequence().map { OrganizerRow(table, column, id) }
+                val rows = (0 until table.rowCount).asSequence().filter {
+                    check(remainingRows-- > 0) { "Organizer combined table scan limit reached; narrow its filters first" }
+                    nativeId(table.getValueAt(it, column)) == id
+                }
+                rows.map { OrganizerRow(table, table.columnModel.getColumn(column), id) }
             }
-        }.toList()
+        }.take(2).toList()
         check(matches.size == 1) {
             "Organizer item $id is not uniquely visible in the current collection and filters (matches=${matches.size}). Open its collection/Contents or adjust filters manually; no selection was made."
         }

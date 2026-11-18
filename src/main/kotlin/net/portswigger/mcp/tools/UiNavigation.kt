@@ -20,6 +20,7 @@ internal data class UiSelectionResult(
     val visible: Boolean,
     val verification: String = "SELECTION_RECHECKED_ON_EDT",
     val contentVerified: Boolean = false,
+    val nextStep: String = SCREENSHOT_HANDOFF,
     val limitation: String = "Selection was checked after an EDT turn. Confirm displayed content before taking a screenshot; rendering and exchange content are not verified."
 )
 
@@ -46,16 +47,19 @@ internal object UiNavigation {
                 SwingUtilities.invokeLater {
                     try {
                         check(!isCancelled()) { "UI navigation cancelled; selection may have changed" }
-                        result.complete(verify())
-                    } catch (error: Exception) {
-                        result.completeExceptionally(error)
-                    } finally {
+                        val selection = verify()
+                        // Release before publishing: the caller may immediately start another navigation.
                         busy.set(false)
+                        result.complete(selection)
+                    } catch (error: Throwable) {
+                        busy.set(false)
+                        result.completeExceptionally(error)
                     }
                 }
-            } catch (error: Exception) {
-                result.completeExceptionally(error)
+            } catch (error: Throwable) {
+                // Transfer failures across the EDT boundary, including linkage/assertion errors.
                 busy.set(false)
+                result.completeExceptionally(error)
             }
         }
         try {

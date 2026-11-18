@@ -83,13 +83,13 @@ internal object WebSocketSessionStore {
         val registration = try {
             socket.registerMessageHandler(object : ExtensionWebSocketMessageHandler {
                 override fun textMessageReceived(textMessage: TextMessage) {
-                    record(state.metadata.id, textMessage.direction().name, WebSocketPayloadType.TEXT,
-                        textMessage.payload().toByteArray(StandardCharsets.UTF_8), received = true)
+                    recordReceived(state, textMessage.direction().name, WebSocketPayloadType.TEXT,
+                        textMessage.payload().toByteArray(StandardCharsets.UTF_8))
                 }
 
                 override fun binaryMessageReceived(binaryMessage: BinaryMessage) {
-                    record(state.metadata.id, binaryMessage.direction().name, WebSocketPayloadType.BINARY,
-                        binaryMessage.payload().bytes, received = true)
+                    recordReceived(state, binaryMessage.direction().name, WebSocketPayloadType.BINARY,
+                        binaryMessage.payload().bytes)
                 }
 
                 override fun onClose() {
@@ -100,10 +100,18 @@ internal object WebSocketSessionStore {
             synchronized(lock) { sessions.remove(state.metadata.id) }
             throw error
         }
-        synchronized(lock) {
-            sessions[state.metadata.id]?.registration = registration
+        val attached = synchronized(lock) {
+            if (sessions[state.metadata.id] === state) {
+                state.registration = registration
+                snapshot(state.metadata)
+            } else null
         }
-        return snapshot(state.metadata)
+        if (attached == null) {
+            // Shutdown/eviction may have removed this state while registration was in progress.
+            runCatching { if (registration.isRegistered) registration.deregister() }
+            error("WebSocket session closed while registering its handler")
+        }
+        return attached
     }
 
     fun list(): List<ManagedWebSocketSession> = synchronized(lock) {
@@ -152,16 +160,33 @@ internal object WebSocketSessionStore {
     }
 
     fun closeAll() {
-        val states = synchronized(lock) { sessions.values.toList() }
-        states.forEach { state ->
-            runCatching { if (state.metadata.open) state.socket.close() }
-            runCatching { state.registration?.takeIf { it.isRegistered }?.deregister() }
+        val cleanup = synchronized(lock) {
+            sessions.values.map { state ->
+                Triple(state.socket, state.metadata.open, state.registration).also {
+                    markClosedLocked(state, "MCP_SHUTDOWN")
+                    state.registration = null
+                }
+            }.also { sessions.clear() }
         }
-        synchronized(lock) { sessions.clear() }
+        // No external callbacks while holding the store lock. New sessions cannot be erased
+        // by the cleanup of this detached generation.
+        cleanup.forEach { (socket, wasOpen, registration) ->
+            runCatching { if (wasOpen) socket.close() }
+            runCatching { registration?.takeIf { it.isRegistered }?.deregister() }
+        }
     }
 
     private fun openState(id: String): State = synchronized(lock) {
         requireState(id).also { check(it.metadata.open) { "WebSocket session $id is closed" } }
+    }
+
+    private fun recordReceived(
+        state: State, direction: String, type: WebSocketPayloadType, bytes: kotlin.ByteArray
+    ) = synchronized(lock) {
+        // Burp can deliver an already queued callback after deregistration or shutdown.
+        if (sessions[state.metadata.id] === state && state.metadata.open) {
+            record(state.metadata.id, direction, type, bytes, received = true)
+        }
     }
 
     private fun record(

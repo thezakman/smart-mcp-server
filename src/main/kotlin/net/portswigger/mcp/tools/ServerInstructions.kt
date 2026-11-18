@@ -3,6 +3,18 @@ package net.portswigger.mcp.tools
 internal val SERVER_INSTRUCTIONS = """
     This server exposes Burp Suite evidence and actions.
 
+    Screenshot integration is OPTIONAL. Both servers work standalone. Native Burp evidence/investigation tools
+    never require a screenshot companion. Do not suggest installing it for ordinary Burp operations.
+    Only for explicit screenshots, evidence images, visual crops or logos, read get_evidence_capture_guide.
+    If mcp-screenshot tools are available, the AI client coordinates both; Burp does not launch or call it.
+    Use Burp tools to identify/select the exact tab/item, then the companion get_capture_guide and uncropped preview.
+    Selection success is not content verification. Inspect actual pixels before proposing a crop and inspect the
+    saved PNG before claiming success. Recalculate dynamic crops per payload/response, omit fixed profiles unless
+    explicitly requested, and always let the user confirm/adjust the suggestion. No request needs to be resent
+    merely for a screenshot. Without the companion, continue native Burp work; offer manual OS capture or another
+    available screenshot tool for the image request. Do not fail Burp operations or demand companion installation.
+
+
     Start with compact index tools and fetch full messages only by their returned native ID or stable key.
     Prefer search_http_history or get_proxy_http_history_summary, then list_site_map, list_organizer_items,
     get_repeater_traffic and get_intruder_traffic. Use get_proxy_http_history_regex for bounded content search

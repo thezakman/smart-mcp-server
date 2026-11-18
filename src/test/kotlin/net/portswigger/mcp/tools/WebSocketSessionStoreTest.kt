@@ -15,6 +15,7 @@ import io.mockk.slot
 import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -112,5 +113,46 @@ class WebSocketSessionStoreTest {
             WebSocketSessionStore.add(socket, "wss://example.invalid/socket", "example.invalid", 443, true)
         }
         assertTrue(WebSocketSessionStore.list().isEmpty())
+    }
+
+    @Test
+    fun `shutdown during registration deregisters the late handler`() {
+        every { socket.registerMessageHandler(any()) } answers {
+            WebSocketSessionStore.closeAll()
+            registration
+        }
+        assertThrows(IllegalStateException::class.java) {
+            WebSocketSessionStore.add(socket, "wss://example.invalid/socket", "example.invalid", 443, true)
+        }
+        verify(exactly = 1) { socket.close() }
+        verify(exactly = 1) { registration.deregister() }
+        assertTrue(WebSocketSessionStore.list().isEmpty())
+    }
+
+    @Test
+    fun `queued callbacks after shutdown do not throw or recreate sessions`() {
+        WebSocketSessionStore.add(socket, "wss://example.invalid/socket", "example.invalid", 443, true)
+        val callback = handler.captured
+        WebSocketSessionStore.closeAll()
+        val message = mockk<TextMessage>()
+        every { message.direction() } returns Direction.SERVER_TO_CLIENT
+        every { message.payload() } returns "late"
+        assertDoesNotThrow { callback.textMessageReceived(message) }
+        assertDoesNotThrow { callback.onClose() }
+        assertTrue(WebSocketSessionStore.list().isEmpty())
+    }
+
+    @Test
+    fun `cleanup cannot erase sessions registered after its snapshot`() {
+        WebSocketSessionStore.add(socket, "wss://example.invalid/old", "example.invalid", 443, true)
+        val nextSocket = mockk<ExtensionWebSocket>(relaxed = true)
+        val nextRegistration = mockk<Registration>(relaxed = true)
+        every { nextSocket.registerMessageHandler(any()) } returns nextRegistration
+        every { socket.close() } answers {
+            WebSocketSessionStore.add(nextSocket, "wss://example.invalid/new", "example.invalid", 443, true)
+        }
+        WebSocketSessionStore.closeAll()
+        assertEquals("wss://example.invalid/new", WebSocketSessionStore.list().single().endpoint)
+        verify(exactly = 0) { nextSocket.close() }
     }
 }

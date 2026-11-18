@@ -13,6 +13,9 @@ import burp.api.montoya.websocket.extension.ExtensionWebSocketCreation
 import burp.api.montoya.websocket.extension.ExtensionWebSocketCreationStatus
 import burp.api.montoya.proxy.ProxyWebSocketMessage
 import burp.api.montoya.websocket.Direction
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import kotlinx.serialization.json.*
+import net.portswigger.mcp.tools.EVIDENCE_CAPTURE_GUIDE
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -20,7 +23,6 @@ import io.mockk.runs
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.verify
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import net.portswigger.mcp.config.McpConfig
 import org.junit.jupiter.api.AfterEach
@@ -34,6 +36,8 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.Optional
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 class McpServerIntegrationTest {
     private val client = TestSseMcpClient()
@@ -41,7 +45,6 @@ class McpServerIntegrationTest {
     private val serverManager = KtorServerManager(api)
     private val testPort = findAvailablePort()
     private val persistedObject = mockk<PersistedObject>()
-    private var serverStarted = false
 
     init {
         every { persistedObject.getBoolean(any()) } returns true
@@ -65,23 +68,19 @@ class McpServerIntegrationTest {
         if (testInfo.testMethod.get().name == "read only profile excludes navigation tools") {
             every { persistedObject.getString("_toolProfile") } returns "READ_ONLY"
         }
+        if (testInfo.testMethod.get().name == "full profile exposes standalone evidence guide") {
+            every { persistedObject.getString("_toolProfile") } returns "FULL"
+        }
+        val started = CompletableFuture<Unit>()
         serverManager.start(config) { state ->
-            if (state is ServerState.Running) {
-                serverStarted = true
+            when (state) {
+                ServerState.Running -> started.complete(Unit)
+                is ServerState.Failed -> started.completeExceptionally(state.exception)
+                else -> Unit
             }
         }
-        
-        runBlocking {
-            var attempts = 0
-            while (!serverStarted && attempts < 50) {
-                delay(100)
-                attempts++
-            }
-            
-            if (!serverStarted) {
-                throw IllegalStateException("Server failed to start after timeout")
-            }
-        }
+        // Preserve startup failures and synchronize with the server thread, without polling.
+        started.get(5, TimeUnit.SECONDS)
     }
 
     private fun findAvailablePort(): Int {
@@ -95,7 +94,8 @@ class McpServerIntegrationTest {
                 client.close()
             }
         }
-        serverManager.stop {}
+        // Wait for cleanup and terminate its executor before the next test uses shared stores.
+        serverManager.shutdown()
     }
 
     @Test
@@ -124,6 +124,10 @@ class McpServerIntegrationTest {
             assertTrue(toolNames.contains("get_proxy_http_history_summary"), "Core should expose history summary")
             assertTrue(toolNames.contains("get_proxy_http_history_regex"), "Core should expose regex history search")
             assertFalse(toolNames.contains("url_encode"), "Core should hide legacy utility tools")
+            val guideTool = tools.single { it.name == "get_evidence_capture_guide" }
+            assertEquals(true, guideTool.annotations?.readOnlyHint)
+            assertEquals(false, guideTool.annotations?.openWorldHint)
+            assertEvidenceGuideResponse()
             assertTrue(tools.size in 31..49, "Core catalog should stay compact; got ${tools.size} tools")
 
             listOf("select_burp_tool", "select_repeater_tab", "select_organizer_item").forEach { name ->
@@ -256,12 +260,38 @@ class McpServerIntegrationTest {
         }
     }
 
+    private suspend fun assertEvidenceGuideResponse() {
+        val result = requireNotNull(client.callTool("get_evidence_capture_guide", emptyMap()))
+        assertEquals(false, result.isError)
+        val text = result.content.single() as TextContent
+        val guide = Json.parseToJsonElement(text.text).jsonObject
+        assertEquals(EVIDENCE_CAPTURE_GUIDE, guide, "The client must receive the complete JSON guide")
+        assertEquals(true, guide.getValue("optional").jsonPrimitive.boolean)
+        assertEquals(2, guide.getValue("version").jsonPrimitive.int)
+        assertTrue(guide.getValue("companion_compatibility").jsonPrimitive.content.contains("exact frozen preview"))
+        assertTrue(guide.getValue("recovery").jsonObject.containsKey("content_changed"))
+        assertTrue(guide.getValue("recovery").jsonObject.containsKey("cancel_or_timeout"))
+    }
+
+    @Test
+    fun `full profile exposes standalone evidence guide`() = runBlocking {
+        client.connectToServer("http://127.0.0.1:$testPort")
+        val tools = client.listTools()
+        assertTrue(tools.any { it.name == "url_encode" }, "Verify this actually uses Full")
+        val guideTool = tools.single { it.name == "get_evidence_capture_guide" }
+        assertEquals(true, guideTool.annotations?.readOnlyHint)
+        assertEquals(false, guideTool.annotations?.openWorldHint)
+        assertEvidenceGuideResponse()
+    }
+
     @Test
     fun `read only profile excludes navigation tools`() = runBlocking {
         // The profile was set before server startup in setup.
         client.connectToServer("http://127.0.0.1:$testPort")
         val names = client.listTools().map { it.name }
         assertTrue("list_repeater_tabs" in names)
+        assertTrue("get_evidence_capture_guide" in names)
+        assertEvidenceGuideResponse()
         listOf(
             "select_burp_tool", "select_repeater_tab", "select_organizer_item",
             "open_web_socket", "send_web_socket_message", "replay_web_socket_message", "close_web_socket"

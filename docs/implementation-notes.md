@@ -114,3 +114,25 @@ Run with a complete Java 21 JDK:
 The regression suite covers MCP SSE, direct Streamable HTTP initialization and packaged stdio-proxy end-to-end
 operation. The generated JAR passes ZIP integrity checks and contains one embedded proxy matching
 `libs/mcp-proxy-all.jar`.
+
+## Screenshot companion handoff (1.14.1)
+
+A read-only `get_evidence_capture_guide` tool is registered in all catalogs. Initialization instructions route screenshot requests to it. Navigation responses include `nextStep`, while preserving `contentVerified=false`: no rendering or capture claim is added. This is client-orchestrated composition, with no new HTTP client, process, filesystem capture or platform dependency in Burp. The companion owns the interactive capture contract. Reload the rebuilt extension to expose the new guide; reconnect clients to refresh discovery.
+
+The companion is strictly optional. No connection/configuration setting or runtime dependency is introduced; standalone Burp operation and all catalogs work without a screenshot service. Only explicit image requests activate the guidance.
+
+The guide includes a versioned JSON contract and recovery paths for stale windows/previews, unavailable images, cancellation/timeouts and selection-only results. Client timeouts must be reconciled before retrying a capture. MCP protocol tests parse the complete guide in Core, Full and Read-only; a serialization regression test checks native tab identity and the explicit unverified-content flag. These checks do not replace live preview/PNG inspection.
+
+Organizer navigation recognizes both Method/URL and Method/Host/Path tables, with a unique native # column. It retains the ID column identity across view reordering, rejects a replaced table model or removed ID column, and rechecks ID uniqueness before confirming selection. These are Swing fixture checks; installed Burp behavior still needs validation after reloading the rebuilt JAR.
+
+Before reporting Organizer navigation success, the selected ID cell must intersect the visible table area. A row scrolled outside the viewport or a table entering cell-edit mode fails verification without committing or cancelling edits. This verifies Swing geometry and selection only; preview pixels remain mandatory.
+
+Navigation releases its busy state before publishing success or failure, including errors transferred from the EDT. Organizer lookup stops after two matches prove ambiguity and caps ID reads at 10,000 across all candidate tables, rather than multiplying that work per table.
+
+## Core reliability: numeric arguments, concurrency and WebSocket cleanup
+
+Integral MCP arguments use exact decimal conversion. Large native IDs retain their value; fractional and out-of-range values reach the serializer unchanged and are rejected rather than rounded or saturated.
+
+Outbound concurrency reconfiguration retains outstanding permits. Lowering the limit prevents new sends until existing work drains; diagnostics continue counting active requests and cannot become negative when older operations finish. Network operations run outside the accounting lock.
+
+WebSocket cleanup detaches its session snapshot before closing sockets and deregistering handlers. A handler registered after its session was removed is deregistered immediately, and queued inbound callbacks for removed/closed sessions are ignored. Cleanup of the detached snapshot does not erase newly registered sessions. These regressions are exercised locally with mocked sockets, without target traffic.

@@ -9,14 +9,78 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JPanel
 import javax.swing.JTabbedPane
 import javax.swing.JTable
+import javax.swing.JViewport
+import java.awt.Dimension
+import java.awt.Point
 import javax.swing.RowFilter
 import javax.swing.SwingUtilities
 import javax.swing.table.DefaultTableModel
+import javax.swing.table.AbstractTableModel
 import javax.swing.table.TableRowSorter
 
 class UiNavigationTest {
     private fun onEdt(block: () -> Unit) = RepeaterUiInspector.onEventDispatchThread(block = block)
     private fun result() = UiSelectionResult(tool = "REPEATER", visible = true)
+
+    @Test
+    fun `failed preparation or verification releases navigation and preserves the cause`() {
+        for (inVerification in listOf(false, true)) {
+            for (failure in listOf(IllegalStateException("fixture"), LinkageError("fixture"))) {
+                val actual = assertThrows(failure.javaClass) {
+                    UiNavigation.run {
+                        if (!inVerification) throw failure
+                        val verify: () -> UiSelectionResult = { throw failure }
+                        verify
+                    }
+                }
+                assertSame(failure, actual)
+                assertTrue(UiNavigation.run { { result() } }.selected)
+            }
+        }
+    }
+
+    @Test
+    fun `completed navigation immediately permits the next request`() {
+        repeat(100) {
+            assertTrue(UiNavigation.run { { result() } }.selected)
+        }
+    }
+
+    private fun countedTable(size: Int, idAt: (Int) -> Int, onRead: () -> Unit) =
+        JTable(object : AbstractTableModel() {
+            override fun getRowCount() = size
+            override fun getColumnCount() = 3
+            override fun getColumnName(column: Int) = arrayOf("#", "Method", "URL")[column]
+            override fun getValueAt(row: Int, column: Int): Any = when (column) {
+                0 -> { onRead(); idAt(row) }
+                1 -> "GET"
+                else -> "/local/$row"
+            }
+        })
+
+    @Test
+    fun `organizer bounds total inspected rows across multiple candidate tables`() = onEdt {
+        var reads = 0
+        val root = JPanel().apply {
+            repeat(2) { add(countedTable(6000, { it + 1000 }) { reads++ }) }
+        }
+        reads = 0
+        val error = assertThrows(IllegalStateException::class.java) {
+            BurpUiNavigator.findOrganizerRow(root, 20)
+        }
+        assertTrue(error.message!!.contains("combined table scan limit"))
+        assertEquals(10_000, reads)
+    }
+
+    @Test
+    fun `organizer stops scanning as soon as ambiguity is proven`() = onEdt {
+        var reads = 0
+        val table = countedTable(6000, { 20 }) { reads++ }
+        reads = 0
+        assertThrows(IllegalStateException::class.java) { BurpUiNavigator.findOrganizerRow(table, 20) }
+        assertEquals(2, reads)
+        assertEquals(-1, table.selectedRow)
+    }
 
     @Test
     fun `selection is confirmed on a later EDT turn`() {
@@ -177,6 +241,54 @@ class UiNavigationTest {
         assertEquals(-1, table.selectedRow)
     }
 
+
+    @Test
+    fun `organizer supports split Host Path layout with sorted native ids`() = onEdt {
+        val table = JTable(DefaultTableModel(
+            arrayOf(arrayOf<Any>(20, "POST", "example.invalid", "/a"), arrayOf<Any>(4, "GET", "example.invalid", "/b")),
+            arrayOf("#", "Method", "Host", "Path")
+        ))
+        table.autoCreateRowSorter = true
+        table.rowSorter.toggleSortOrder(0)
+        val row = BurpUiNavigator.findOrganizerRow(table, 20)
+        row.select(); row.verify()
+        assertEquals(20, table.getValueAt(table.selectedRow, 0))
+    }
+
+    @Test
+    fun `organizer tracks the id column when reordered after lookup`() = onEdt {
+        val table = table(20, 4)
+        val row = BurpUiNavigator.findOrganizerRow(table, 20)
+        table.moveColumn(0, 2)
+        row.select()
+        table.moveColumn(2, 1)
+        row.verify()
+        assertEquals(20, table.getValueAt(table.selectedRow, 1))
+    }
+
+    @Test
+    fun `organizer rejects removed id column and replaced table model`() = onEdt {
+        val table = table(20)
+        val row = BurpUiNavigator.findOrganizerRow(table, 20)
+        table.removeColumn(table.columnModel.getColumn(0))
+        assertThrows(IllegalStateException::class.java) { row.select() }
+        assertEquals(-1, table.selectedRow)
+        val other = table(20)
+        val otherRow = BurpUiNavigator.findOrganizerRow(other, 20)
+        other.model = DefaultTableModel(arrayOf(arrayOf<Any>(20, "GET", "/different")), arrayOf("#", "Method", "URL"))
+        assertThrows(IllegalStateException::class.java) { otherRow.select() }
+        assertEquals(-1, other.selectedRow)
+    }
+
+    @Test
+    fun `organizer rejects duplicate id introduced before verification`() = onEdt {
+        val table = table(20, 4)
+        val row = BurpUiNavigator.findOrganizerRow(table, 20)
+        row.select()
+        table.model.setValueAt(20, 1, 0)
+        assertThrows(IllegalStateException::class.java) { row.verify() }
+    }
+
     @Test
     fun `suite navigation rejects ambiguous layouts`() = onEdt {
         fun suite() = JTabbedPane().apply { addTab("Proxy", JPanel()); addTab("Organizer", JPanel()) }
@@ -184,5 +296,57 @@ class UiNavigationTest {
         assertEquals("Organizer", BurpUiNavigator.locateTool(first, "Organizer").title)
         val root = JPanel().apply { add(first); add(suite()) }
         assertThrows(IllegalStateException::class.java) { BurpUiNavigator.locateTool(root, "Organizer") }
+    }
+
+    @Test
+    fun `organizer rejects editing started after selection without committing it`() =
+        // Creating the first native text editor can exceed the navigation deadline on macOS.
+        // This timeout covers fixture initialization; UiNavigation keeps its 1500 ms deadline.
+        RepeaterUiInspector.onEventDispatchThread(timeoutMillis = 5000) {
+        val table = table(20)
+        val row = BurpUiNavigator.findOrganizerRow(table, 20)
+        row.select()
+        assertTrue(table.editCellAt(0, 2))
+        assertThrows(IllegalStateException::class.java) { row.verify() }
+        assertTrue(table.isEditing, "Verification must not commit or cancel user edits")
+        table.cellEditor.cancelCellEditing()
+        row.verify()
+    }
+
+    @Test
+    fun `organizer rejects selected row scrolled out of view and can reselect it`() = onEdt {
+        val table = table(*(1..100).toList().toIntArray())
+        val viewport = JViewport().apply {
+            setSize(300, 80)
+            view = table
+            viewSize = Dimension(300, table.rowHeight * table.rowCount)
+        }
+        val row = BurpUiNavigator.findOrganizerRow(table, 100)
+        row.select()
+        row.verifyVisibleRow()
+        viewport.viewPosition = Point(0, 0)
+        row.verify() // Selection survives scrolling, but the screenshot would miss its ID.
+        assertThrows(IllegalStateException::class.java) { row.verifyVisibleRow() }
+        row.select()
+        row.verifyVisibleRow()
+        assertEquals(100, table.getValueAt(table.selectedRow, 0))
+    }
+
+    @Test
+    fun `organizer rejects horizontally hidden id cell and zero size viewport`() = onEdt {
+        val table = table(20)
+        val viewport = JViewport().apply {
+            setSize(60, 80)
+            view = table
+            viewSize = Dimension(300, 80)
+        }
+        val row = BurpUiNavigator.findOrganizerRow(table, 20)
+        row.select()
+        row.verifyVisibleRow()
+        viewport.viewPosition = Point(150, 0)
+        assertThrows(IllegalStateException::class.java) { row.verifyVisibleRow() }
+        viewport.viewPosition = Point(0, 0)
+        viewport.setSize(0, 0)
+        assertThrows(IllegalStateException::class.java) { row.verifyVisibleRow() }
     }
 }

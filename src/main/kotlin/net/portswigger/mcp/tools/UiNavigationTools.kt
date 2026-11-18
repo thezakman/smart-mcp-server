@@ -26,7 +26,7 @@ internal fun Server.registerUiNavigationTools(api: MontoyaApi, config: McpConfig
     val behavior = ToolBehavior(readOnly = false, destructive = false, idempotent = true, openWorld = false)
     mcpTool<SelectRepeaterTab>(
         "Select an existing Repeater tab by session tabId from list_repeater_tabs. Optional expectedTitle rejects renames. " +
-            "Activates Repeater and rechecks selection on the next UI turn. No sends or message edits. Confirm displayed content before screenshot capture.", behavior
+            "Activates Repeater and rechecks selection on the next UI turn. No sends or message edits. Confirm displayed content before screenshot capture; see get_evidence_capture_guide.", behavior
     ) {
         requireAccess(DataAccessType.HTTP_HISTORY)
         expectedTitle?.let { require(it.length <= 500) { "expectedTitle must be at most 500 characters" } }
@@ -35,7 +35,7 @@ internal fun Server.registerUiNavigationTools(api: MontoyaApi, config: McpConfig
     mcpTool<SelectOrganizerItem>(
         "Select and scroll to a native Organizer item ID in the current collection/Contents and filters. " +
             "Fails when absent, hidden or ambiguous; does not change collections or filters. No traffic or data edits. " +
-            "Rechecks row selection; confirm displayed content before screenshot capture.", behavior
+            "Rechecks row selection; confirm displayed content before screenshot capture; see get_evidence_capture_guide.", behavior
     ) {
         require(id >= 0) { "Use a native Organizer item ID" }
         requireAccess(DataAccessType.ORGANIZER)
@@ -45,7 +45,7 @@ internal fun Server.registerUiNavigationTools(api: MontoyaApi, config: McpConfig
     mcpTool<SelectBurpTool>(
         "Show one attached Burp suite tool tab by exact tool name. Does not select inner history rows, Repeater tabs, " +
             "collections or editor views. Rechecks visibility without sending traffic, starting scans or editing data. " +
-            "Use select_repeater_tab/select_organizer_item for specific content, then the separate screenshot MCP.", behavior
+            "Use select_repeater_tab/select_organizer_item for specific content, then get_evidence_capture_guide for the separate mcp-screenshot workflow.", behavior
     ) {
         requireAccess(if (tool == BurpTool.ORGANIZER) DataAccessType.ORGANIZER else DataAccessType.HTTP_HISTORY)
         json.encodeToString(UiSelectionResult.serializer(), BurpUiNavigator.selectTool(api, tool.name))

@@ -112,6 +112,7 @@ private fun normalizePrelude(prelude: String): String = prelude
 fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     val fullCatalog = config.toolProfile == ToolProfile.FULL
     val readOnlyCatalog = config.toolProfile == ToolProfile.READ_ONLY
+    registerEvidenceCaptureGuide()
     registerSmartHistoryTools(api, config)
     registerHistoryTriageTools(api, config)
     registerFilteredHistoryTools(

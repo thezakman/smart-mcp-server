@@ -18,6 +18,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 import net.portswigger.mcp.schema.asInputSchema
+import java.math.BigDecimal
 import kotlin.reflect.KClass
 import kotlin.reflect.full.memberProperties
 import kotlin.experimental.ExperimentalTypeInference
@@ -248,9 +249,14 @@ private fun coerceWholeNumber(value: JsonElement): JsonElement {
     val primitive = value as? JsonPrimitive ?: return value
     if (primitive.isString) return value
     val raw = primitive.content
-    val number = raw.toDoubleOrNull() ?: return value
-    if (!number.isFinite() || number % 1.0 != 0.0) return value
-    return JsonPrimitive(number.toLong())
+    return try {
+        // Double rounds large IDs and tiny fractional parts; only normalize exact Long values.
+        JsonPrimitive(BigDecimal(raw).longValueExact())
+    } catch (_: NumberFormatException) {
+        value
+    } catch (_: ArithmeticException) {
+        value // Preserve fractional/out-of-range input for the serializer to reject.
+    }
 }
 
 fun String.toLowerSnakeCase(): String {

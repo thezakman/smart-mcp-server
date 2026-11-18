@@ -159,7 +159,8 @@ class ToolsKtTest {
     @AfterEach
     fun tearDown() {
         runBlocking { if (client.isConnected()) client.close() }
-        serverManager.stop {}
+        // Wait for cleanup and terminate its executor before the next test uses shared stores.
+        serverManager.shutdown()
     }
 
     @Nested
