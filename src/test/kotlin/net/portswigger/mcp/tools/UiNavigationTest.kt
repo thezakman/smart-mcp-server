@@ -19,6 +19,28 @@ import javax.swing.table.AbstractTableModel
 import javax.swing.table.TableRowSorter
 
 class UiNavigationTest {
+    @Test
+    fun `window focus is opt in and restoration preserves maximized state`() = onEdt {
+        val frame = io.mockk.mockk<java.awt.Frame>(relaxed = true)
+        io.mockk.every { frame.isShowing } returns true
+        io.mockk.every { frame.extendedState } returns java.awt.Frame.MAXIMIZED_BOTH
+        BurpUiNavigator.prepareWindow(frame, false)
+        io.mockk.verify(exactly = 0) { frame.toFront(); frame.requestFocus() }
+        io.mockk.every { frame.extendedState } returns (java.awt.Frame.MAXIMIZED_BOTH or java.awt.Frame.ICONIFIED)
+        assertThrows(IllegalStateException::class.java) { BurpUiNavigator.prepareWindow(frame, false) }
+        BurpUiNavigator.prepareWindow(frame, true)
+        io.mockk.verify(exactly = 1) { frame.extendedState = java.awt.Frame.MAXIMIZED_BOTH }
+        io.mockk.verify(exactly = 1) { frame.toFront(); frame.requestFocus() }
+    }
+
+    @Test
+    fun `hidden windows cannot receive navigation focus requests`() = onEdt {
+        val frame = io.mockk.mockk<java.awt.Frame>(relaxed = true)
+        io.mockk.every { frame.isShowing } returns false
+        assertThrows(IllegalStateException::class.java) { BurpUiNavigator.prepareWindow(frame, true) }
+        io.mockk.verify(exactly = 0) { frame.toFront(); frame.requestFocus() }
+    }
+
     private fun onEdt(block: () -> Unit) = RepeaterUiInspector.onEventDispatchThread(block = block)
     private fun result() = UiSelectionResult(tool = "REPEATER", visible = true)
 

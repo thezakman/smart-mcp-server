@@ -361,10 +361,17 @@ Use the two MCP servers together:
 window or finished rendering. The screenshot server remains responsible for capture and evidence files.
 `select_burp_tool` only changes the suite section; it does not select an inner row, collection or editor view.
 
+Navigation accepts optional `bringToFront: true` on `select_burp_tool`, `select_repeater_tab`, and
+`select_organizer_item`. It restores a minimized owner window and requests focus; the default is false.
+Results report `focusRequested` and the observed `windowActive` state. The operating system can refuse
+focus, and neither field verifies screenshot pixels. For example:
+`select_burp_tool({"tool":"REPEATER","bringToFront":true})`.
+Repeater inspection rejects ambiguous suite or sibling tab strips instead of choosing the first match.
+
 Navigation uses a bounded Swing adapter because Montoya does not provide these selection methods. Calls are
 serialized, checked again on a subsequent UI event turn and time out after 1.5 seconds. Closed, renamed (when
 `expectedTitle` is supplied), filtered, disabled, missing or ambiguous targets fail explicitly. Organizer navigation
-requires the native English `#`, `Method` and `URL` table columns; unsupported layouts require manual navigation.
+requires the native English `#`, `Method` and either `URL` or `Host`/`Path` table columns; unsupported layouts require manual navigation.
 It never searches other collections or changes filters. A timeout can occur after selection, so inspect the UI before
 retrying or capturing. Explicit navigation also stops the automatic Repeater startup walk from changing tabs again
 until extension reload. Editor callbacks never wait for navigation.

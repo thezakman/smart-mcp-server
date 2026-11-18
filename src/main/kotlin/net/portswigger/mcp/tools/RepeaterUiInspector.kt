@@ -82,7 +82,7 @@ internal object RepeaterUiInspector {
         val windowTitle: String?,
         val owner: Window?,
         val activationPane: JTabbedPane? = null,
-        val activationIndex: Int? = null
+        val activationContent: Component? = null
     )
 
     private data class AttachedLocation(
@@ -188,7 +188,7 @@ internal object RepeaterUiInspector {
         activeWalk?.finish()
     }
 
-    fun selectTab(api: MontoyaApi, tabId: String, expectedTitle: String?): UiSelectionResult = UiNavigation.run {
+    fun selectTab(api: MontoyaApi, tabId: String, expectedTitle: String?, bringToFront: Boolean = false): UiSelectionResult = UiNavigation.run {
         require(tabId.isNotBlank() && tabId.length <= 100) { "Use a tabId from list_repeater_tabs" }
         val candidates = locatePanes(api).flatMap { located ->
             tabsFor(located).filter { it.id == tabId }.map { located to it }
@@ -196,12 +196,12 @@ internal object RepeaterUiInspector {
         check(candidates.size == 1) { "Repeater tab ID is missing or ambiguous; call list_repeater_tabs again" }
         val (located, tab) = candidates.single()
         val owner = located.owner ?: error("Repeater owner window is unavailable")
-        BurpUiNavigator.requireVisibleWindow(owner)
         val content = located.pane.getComponentAt(tab.index)
         validateTarget(located.pane, content, expectedTitle)
         prepareForNavigation()
+        BurpUiNavigator.prepareWindow(owner, bringToFront)
         located.activationPane?.let { activation ->
-            val index = located.activationIndex ?: error("Repeater suite tab is unavailable")
+            val index = activation.indexOfComponent(located.activationContent)
             check(index in 0 until activation.tabCount && activation.isEnabledAt(index)) { "Repeater suite tab is disabled" }
             activation.selectedIndex = index
         }
@@ -212,7 +212,8 @@ internal object RepeaterUiInspector {
             BurpUiNavigator.requireVisibleWindow(owner)
             UiSelectionResult(tool = "REPEATER", tabId = tabId,
                 tabTitle = tabTitle(located.pane, located.pane.indexOfComponent(content)),
-                visible = true, windowTitle = located.windowTitle)
+                visible = true, windowTitle = located.windowTitle,
+                focusRequested = bringToFront, windowActive = owner.isActive)
         }
         verify
     }
@@ -241,15 +242,12 @@ internal object RepeaterUiInspector {
     }
 
     private fun findAttachedRepeaterLocation(root: Container): AttachedLocation? {
-        val suiteTabs = descendants(root)
-            .filterIsInstance<JTabbedPane>()
-            .firstOrNull { pane ->
-                (0 until pane.tabCount).any { pane.getTitleAt(it).equals("Repeater", ignoreCase = true) }
-            } ?: return null
-
-        val repeaterIndex = (0 until suiteTabs.tabCount)
-            .firstOrNull { suiteTabs.getTitleAt(it).equals("Repeater", ignoreCase = true) }
-            ?: return null
+        val candidates = descendants(root).filterIsInstance<JTabbedPane>().filter(BurpUiNavigator::isSuitePane).flatMap { pane ->
+            (0 until pane.tabCount).filter { pane.getTitleAt(it).equals("Repeater", ignoreCase = true) }
+                .map { pane to it }
+        }.take(2).toList()
+        check(candidates.size <= 1) { "Ambiguous Repeater suite tabs; use manual navigation for this layout" }
+        val (suiteTabs, repeaterIndex) = candidates.singleOrNull() ?: return null
         val pane = findPrimaryRepeaterPane(suiteTabs.getComponentAt(repeaterIndex)) ?: return null
         return AttachedLocation(pane, suiteTabs, repeaterIndex)
     }
@@ -318,8 +316,8 @@ internal object RepeaterUiInspector {
             val step = steps[next++]
             val located = step.located
             located.activationPane?.let { activation ->
-                val activationIndex = located.activationIndex
-                if (activationIndex != null && activation.selectedIndex != activationIndex) {
+                val activationIndex = activation.indexOfComponent(located.activationContent)
+                if (activationIndex >= 0 && activation.isEnabledAt(activationIndex) && activation.selectedIndex != activationIndex) {
                     activation.selectedIndex = activationIndex
                 }
             }
@@ -352,7 +350,7 @@ internal object RepeaterUiInspector {
                 suiteFrame.title,
                 suiteFrame,
                 attached.suiteTabs,
-                attached.repeaterIndex
+                attached.suiteTabs.getComponentAt(attached.repeaterIndex)
             )
         }
 
@@ -373,8 +371,20 @@ internal object RepeaterUiInspector {
     }
 
     private fun findPrimaryRepeaterPane(root: Component): JTabbedPane? {
-        if (root is JTabbedPane && isRepeaterTabPane(root)) return root
-        return descendants(root).filterIsInstance<JTabbedPane>().firstOrNull(::isRepeaterTabPane)
+        // Stop at candidate tab strips: their descendants are editors, not sibling Repeater containers.
+        val pending = ArrayDeque<Component>()
+        pending.add(root)
+        val matches = ArrayList<JTabbedPane>()
+        var visited = 0
+        while (pending.isNotEmpty()) {
+            check(++visited <= 20_000) { "Repeater UI traversal limit reached; unsupported layout" }
+            val node = pending.removeFirst()
+            if (node is JTabbedPane && isRepeaterTabPane(node)) {
+                matches.add(node)
+                check(matches.size <= 1) { "Ambiguous Repeater tab strips; use manual navigation for this layout" }
+            } else if (node is Container) node.components.forEach(pending::addLast)
+        }
+        return matches.singleOrNull()
     }
 
     private fun isRepeaterTabPane(pane: JTabbedPane): Boolean {
@@ -443,7 +453,9 @@ internal object RepeaterUiInspector {
     private fun descendants(root: Component): Sequence<Component> = sequence {
         val queue = ArrayDeque<Component>()
         queue.add(root)
+        var visited = 0
         while (queue.isNotEmpty()) {
+            check(++visited <= 20_000) { "Repeater UI traversal limit reached; unsupported layout" }
             val current = queue.removeFirst()
             yield(current)
             if (current is Container) current.components.forEach(queue::addLast)

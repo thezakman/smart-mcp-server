@@ -18,33 +18,34 @@ internal object BurpUiNavigator {
     )
     internal data class ToolLocation(val pane: JTabbedPane, val content: Component, val title: String)
 
-    fun selectTool(api: MontoyaApi, tool: String): UiSelectionResult {
+    fun selectTool(api: MontoyaApi, tool: String, bringToFront: Boolean = false): UiSelectionResult {
         val title = toolTitles[tool] ?: throw IllegalArgumentException("Unsupported Burp tool: $tool")
         return UiNavigation.run {
             val frame = api.userInterface().swingUtils().suiteFrame()
-            requireVisibleWindow(frame)
             val target = locateTool(frame, title)
             RepeaterUiInspector.prepareForNavigation()
+            prepareWindow(frame, bringToFront)
             activate(target)
             val verify: () -> UiSelectionResult = {
                 check(target.pane.selectedComponent === target.content && target.content.isShowing) {
                     "Burp tool selection changed or is not visible; inspect UI before capturing"
                 }
                 requireVisibleWindow(frame)
-                UiSelectionResult(tool = tool, visible = true, windowTitle = frame.title)
+                UiSelectionResult(tool = tool, visible = true, windowTitle = frame.title,
+                focusRequested = bringToFront, windowActive = frame.isActive)
             }
             verify
         }
     }
 
-    fun selectOrganizerItem(api: MontoyaApi, id: Int): UiSelectionResult = UiNavigation.run {
+    fun selectOrganizerItem(api: MontoyaApi, id: Int, bringToFront: Boolean = false): UiSelectionResult = UiNavigation.run {
         val frame = api.userInterface().swingUtils().suiteFrame()
-        requireVisibleWindow(frame)
         val target = locateTool(frame, "Organizer")
         // Search only the currently selected collection/contents card, even when the suite tab is hidden.
         // No guessing across collections, changing filters, invoking context menus or rebuilding item contents.
         val selection = findOrganizerRow(target.content, id)
         RepeaterUiInspector.prepareForNavigation()
+        prepareWindow(frame, bringToFront)
         activate(target)
         selection.select()
         val verify: () -> UiSelectionResult = {
@@ -54,16 +55,17 @@ internal object BurpUiNavigator {
             check(selection.table.isShowing) { "Organizer item table is not visible" }
             selection.verifyVisibleRow()
             requireVisibleWindow(frame)
-            UiSelectionResult(tool = "ORGANIZER", organizerItemId = id, visible = true, windowTitle = frame.title)
+            UiSelectionResult(tool = "ORGANIZER", organizerItemId = id, visible = true, windowTitle = frame.title,
+                focusRequested = bringToFront, windowActive = frame.isActive)
         }
         verify
     }
 
+    internal fun isSuitePane(pane: JTabbedPane): Boolean =
+        (0 until pane.tabCount).count { pane.getTitleAt(it) in toolTitles.values } >= 2
+
     internal fun locateTool(root: Component, title: String): ToolLocation {
-        val matches = descendants(root).filterIsInstance<JTabbedPane>().filter { pane ->
-            // A native tool bar has multiple known suite titles; an inner editor pane does not.
-            (0 until pane.tabCount).count { i -> pane.getTitleAt(i) in toolTitles.values } >= 2
-        }.flatMap { pane ->
+        val matches = descendants(root).filterIsInstance<JTabbedPane>().filter(::isSuitePane).flatMap { pane ->
             (0 until pane.tabCount).filter { pane.getTitleAt(it) == title }.map {
                 ToolLocation(pane, pane.getComponentAt(it), title)
             }
@@ -76,6 +78,19 @@ internal object BurpUiNavigator {
         val index = target.pane.indexOfComponent(target.content)
         check(index >= 0 && target.pane.isEnabledAt(index)) { "Burp tool was closed or is disabled" }
         target.pane.selectedComponent = target.content
+    }
+
+    internal fun prepareWindow(window: Window, bringToFront: Boolean) {
+        check(window.isShowing) { "Burp window is not showing; open it before navigating" }
+        if (bringToFront) {
+            if (window is Frame && window.extendedState and Frame.ICONIFIED != 0) {
+                window.extendedState = window.extendedState and Frame.ICONIFIED.inv()
+            }
+            window.toFront()
+            window.requestFocus()
+        } else {
+            requireVisibleWindow(window)
+        }
     }
 
     internal fun requireVisibleWindow(window: Window) {

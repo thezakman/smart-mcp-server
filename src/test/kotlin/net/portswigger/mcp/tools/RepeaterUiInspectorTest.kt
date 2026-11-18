@@ -19,6 +19,31 @@ import javax.swing.SwingUtilities
 
 class RepeaterUiInspectorTest {
     @Test
+    fun `rejects ambiguous suite and sibling Repeater panes without selecting`() = RepeaterUiInspector.onEventDispatchThread {
+        fun tabs() = JTabbedPane().apply { addTab("Evidence", JPanel()) }
+        fun suite(content: JPanel) = JTabbedPane().apply {
+            addTab("Proxy", JPanel()); addTab("Repeater", content)
+        }
+        val first = suite(JPanel().apply { add(tabs()) })
+        val root = JPanel().apply { add(first); add(suite(JPanel().apply { add(tabs()) })) }
+        assertThrows(IllegalStateException::class.java) { RepeaterUiInspector.findAttachedRepeaterPane(root) }
+        assertEquals(0, first.selectedIndex)
+        val siblings = suite(JPanel().apply { add(tabs()); add(tabs()) })
+        assertThrows(IllegalStateException::class.java) { RepeaterUiInspector.findAttachedRepeaterPane(siblings) }
+        assertEquals(0, siblings.selectedIndex)
+    }
+
+    @Test
+    fun `manual Repeater title and nested editors do not replace the suite pane`() = RepeaterUiInspector.onEventDispatchThread {
+        val editor = JTabbedPane().apply { addTab("Custom view", JPanel()) }
+        val tabs = JTabbedPane().apply { addTab("Repeater", editor) }
+        val suite = JTabbedPane().apply {
+            addTab("Proxy", JPanel()); addTab("Repeater", JPanel().apply { add(tabs) })
+        }
+        assertSame(tabs, RepeaterUiInspector.findAttachedRepeaterPane(suite))
+    }
+
+    @Test
     fun `editor callback holding a Burp lock never waits for the EDT`() {
         val api = mockk<MontoyaApi>()
         val burpLock = Any()

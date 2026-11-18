@@ -61,6 +61,12 @@ The response confirms selection, not rendered request/response content or foregr
 separate screenshot MCP after checking the intended Burp window and content. This release has automated Swing
 fixture and MCP protocol tests; live navigation in the installed Burp instance still requires reloading the new JAR.
 
+Navigation focus is opt-in (`bringToFront`, default false) on all three selection tools. Restoration clears
+only the Frame.ICONIFIED bit, retaining maximization; focus requests use the selected owner window.
+`windowActive` is observed on the verification EDT turn, not proof of OS foreground or rendered content.
+Repeater traversal is bounded at 20,000 components and rejects ambiguous suite/sibling tab strips.
+Suite activation tracks component identity across reordering instead of retaining a stale tab index.
+
 ## Managed WebSockets (1.14.0)
 
 Montoya 2026.7's `WebSockets.createWebSocket(HttpRequest)` and `ExtensionWebSocket` APIs provide the complete

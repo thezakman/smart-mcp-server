@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import java.awt.Component
 import java.awt.Container
-import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -22,7 +21,7 @@ class DetailedLoggingToggleTest {
     }
 
     @Test
-    fun `toggle starts enabled persists clicks and renders in the configuration panel`() {
+    fun `checkbox starts enabled persists clicks and renders in the configuration panel`() {
         val values = mutableMapOf<String, Any>()
         val storage = mockk<PersistedObject>()
         every { storage.getBoolean(any()) } answers { values[firstArg()] as? Boolean }
@@ -33,7 +32,8 @@ class DetailedLoggingToggleTest {
         SwingUtilities.invokeAndWait {
             val panel = ServerConfigurationPanel(config, ToggleSwitch(true) {}, WarningLabel(),
                 AdvancedOptionsPanel(JTextField("127.0.0.1"), JTextField("9876"), WarningLabel()))
-            val toggle = descendants(panel).single { it.name == "detailedLoggingToggle" } as ToggleSwitch
+            val checkbox = descendants(panel).filterIsInstance<JCheckBox>().single { it.text == "Detailed logs" }
+            assertTrue(checkbox.isSelected)
             assertTrue(config.detailedLogging)
             panel.setSize(1200, panel.preferredSize.height)
             fun layout(component: Component) {
@@ -47,12 +47,12 @@ class DetailedLoggingToggleTest {
             val output = File("build/reports/ui/detailed-logs.png")
             output.parentFile.mkdirs()
             ImageIO.write(image, "png", output)
-            fun click() = toggle.dispatchEvent(MouseEvent(toggle, MouseEvent.MOUSE_PRESSED,
-                System.currentTimeMillis(), 0, 20, 20, 1, false))
-            click()
+            checkbox.doClick()
+            assertFalse(checkbox.isSelected)
             assertFalse(config.detailedLogging)
             assertEquals(false, values["detailedLogging"])
-            click()
+            checkbox.doClick()
+            assertTrue(checkbox.isSelected)
             assertTrue(config.detailedLogging)
         }
     }

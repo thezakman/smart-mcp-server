@@ -16,6 +16,8 @@ internal data class UiSelectionResult(
     val tabTitle: String? = null,
     val organizerItemId: Int? = null,
     val windowTitle: String? = null,
+    val focusRequested: Boolean = false,
+    val windowActive: Boolean? = null,
     val selected: Boolean = true,
     val visible: Boolean,
     val verification: String = "SELECTION_RECHECKED_ON_EDT",

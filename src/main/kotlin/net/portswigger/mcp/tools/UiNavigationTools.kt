@@ -10,44 +10,45 @@ import net.portswigger.mcp.security.DataAccessSecurity
 import net.portswigger.mcp.security.DataAccessType
 
 @Serializable
-internal data class SelectRepeaterTab(val tabId: String, val expectedTitle: String? = null)
+internal data class SelectRepeaterTab(val tabId: String, val expectedTitle: String? = null, val bringToFront: Boolean = false)
 @Serializable
-internal data class SelectOrganizerItem(val id: Int)
+internal data class SelectOrganizerItem(val id: Int, val bringToFront: Boolean = false)
 @Serializable
 internal enum class BurpTool { DASHBOARD, TARGET, PROXY, LOGGER, REPEATER, INTRUDER, SEQUENCER, DECODER, COMPARER, ORGANIZER, MCP }
 @Serializable
-internal data class SelectBurpTool(val tool: BurpTool)
+internal data class SelectBurpTool(val tool: BurpTool, val bringToFront: Boolean = false)
 
 internal fun Server.registerUiNavigationTools(api: MontoyaApi, config: McpConfig) {
     fun requireAccess(type: DataAccessType) {
         check(runBlocking { DataAccessSecurity.checkDataAccessPermission(type, config) }) { "Project data access denied by Burp Suite" }
     }
     val json = Json { encodeDefaults = true }
+    val focusHelp = " Optional bringToFront restores and requests window focus; windowActive reports the observed state, not a guarantee of OS foreground."
     val behavior = ToolBehavior(readOnly = false, destructive = false, idempotent = true, openWorld = false)
     mcpTool<SelectRepeaterTab>(
         "Select an existing Repeater tab by session tabId from list_repeater_tabs. Optional expectedTitle rejects renames. " +
-            "Activates Repeater and rechecks selection on the next UI turn. No sends or message edits. Confirm displayed content before screenshot capture; see get_evidence_capture_guide.", behavior
+            "Activates Repeater and rechecks selection on the next UI turn. No sends or message edits. Confirm displayed content before screenshot capture; see get_evidence_capture_guide." + focusHelp, behavior
     ) {
         requireAccess(DataAccessType.HTTP_HISTORY)
         expectedTitle?.let { require(it.length <= 500) { "expectedTitle must be at most 500 characters" } }
-        json.encodeToString(UiSelectionResult.serializer(), RepeaterUiInspector.selectTab(api, tabId, expectedTitle))
+        json.encodeToString(UiSelectionResult.serializer(), RepeaterUiInspector.selectTab(api, tabId, expectedTitle, bringToFront))
     }
     mcpTool<SelectOrganizerItem>(
         "Select and scroll to a native Organizer item ID in the current collection/Contents and filters. " +
             "Fails when absent, hidden or ambiguous; does not change collections or filters. No traffic or data edits. " +
-            "Rechecks row selection; confirm displayed content before screenshot capture; see get_evidence_capture_guide.", behavior
+            "Rechecks row selection; confirm displayed content before screenshot capture; see get_evidence_capture_guide." + focusHelp, behavior
     ) {
         require(id >= 0) { "Use a native Organizer item ID" }
         requireAccess(DataAccessType.ORGANIZER)
         check(api.organizer().items().any { it.id() == id }) { "No Organizer item with ID $id" }
-        json.encodeToString(UiSelectionResult.serializer(), BurpUiNavigator.selectOrganizerItem(api, id))
+        json.encodeToString(UiSelectionResult.serializer(), BurpUiNavigator.selectOrganizerItem(api, id, bringToFront))
     }
     mcpTool<SelectBurpTool>(
         "Show one attached Burp suite tool tab by exact tool name. Does not select inner history rows, Repeater tabs, " +
             "collections or editor views. Rechecks visibility without sending traffic, starting scans or editing data. " +
-            "Use select_repeater_tab/select_organizer_item for specific content, then get_evidence_capture_guide for the separate mcp-screenshot workflow.", behavior
+            "Use select_repeater_tab/select_organizer_item for specific content, then get_evidence_capture_guide for the separate mcp-screenshot workflow." + focusHelp, behavior
     ) {
         requireAccess(if (tool == BurpTool.ORGANIZER) DataAccessType.ORGANIZER else DataAccessType.HTTP_HISTORY)
-        json.encodeToString(UiSelectionResult.serializer(), BurpUiNavigator.selectTool(api, tool.name))
+        json.encodeToString(UiSelectionResult.serializer(), BurpUiNavigator.selectTool(api, tool.name, bringToFront))
     }
 }

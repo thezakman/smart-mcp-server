@@ -6,6 +6,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import net.portswigger.mcp.tools.SelectBurpTool
+import net.portswigger.mcp.tools.SelectOrganizerItem
+import net.portswigger.mcp.tools.SelectRepeaterTab
 import net.portswigger.mcp.tools.coerceIntegralArguments
 import net.portswigger.mcp.tools.GetScannerIssues
 import net.portswigger.mcp.tools.GetProxyHttpHistory
@@ -16,6 +19,19 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class JsonSchemaContractTest {
+    @Test
+    fun `navigation focus is optional and defaults to no focus request`() {
+        for (type in listOf(SelectBurpTool::class, SelectOrganizerItem::class, SelectRepeaterTab::class)) {
+            val schema = type.asInputSchema()
+            assertEquals("boolean", schema.properties!!.getValue("bringToFront").jsonObject.getValue("type").jsonPrimitive.content)
+            org.junit.jupiter.api.Assertions.assertFalse(schema.required.orEmpty().contains("bringToFront"))
+        }
+        org.junit.jupiter.api.Assertions.assertFalse(Json.decodeFromString<SelectBurpTool>("""{"tool":"REPEATER"}""").bringToFront)
+        org.junit.jupiter.api.Assertions.assertFalse(Json.decodeFromString<SelectOrganizerItem>("""{"id":1}""").bringToFront)
+        org.junit.jupiter.api.Assertions.assertFalse(Json.decodeFromString<SelectRepeaterTab>("""{"tabId":"repeater-tab-1"}""").bringToFront)
+        org.junit.jupiter.api.Assertions.assertTrue(Json.decodeFromString<SelectBurpTool>("""{"tool":"REPEATER","bringToFront":true}""").bringToFront)
+    }
+
     @Test
     fun `legacy page schemas advertise their runtime bounds`() {
         for (type in listOf(GetScannerIssues::class, GetProxyHttpHistory::class,
