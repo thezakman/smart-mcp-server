@@ -5,7 +5,7 @@
 <h1 align="center">Smart Burp MCP Server</h1>
 
 <p align="center">
-  <strong>Extension 1.14.1</strong> &nbsp;·&nbsp;
+  <strong>Extension 1.14.2</strong> &nbsp;·&nbsp;
   <strong>Montoya API 2026.7 — latest official release</strong>
 </p>
 
@@ -24,7 +24,7 @@ response comparison, diagnostics and reviewed single-request mutations.
 The extension is built against
 [Montoya API 2026.7](https://github.com/PortSwigger/burp-extensions-montoya-api/releases/tag/2026.7), the latest
 official Montoya release published by PortSwigger. The Montoya version and the extension version are independent:
-Montoya identifies the Burp API compatibility level, while `1.14.1` identifies this Smart Burp MCP release.
+Montoya identifies the Burp API compatibility level, while `1.14.2` identifies this Smart Burp MCP release.
 
 For more information about the protocol visit: [modelcontextprotocol.io](https://modelcontextprotocol.io/)
 
@@ -91,7 +91,7 @@ request at a time. It deliberately does not include an automatic payload batch, 
 - Three-control authorization comparison for anonymous, invalid-token and valid-token evidence
 - Automatic Collaborator correlation across payload, originating exchange, interaction and Trace ID
 - Reviewed single-request mutations protected by preview SHA-256 and target approval
-- MCP runtime diagnostics, initialize instructions and metadata-only action audit log
+- MCP runtime diagnostics, initialize instructions and configurable action audit log
 - Theme-aware Burp UI, including restrained alternating rows in dark and light themes
 - Read-only investigation, Core and Full compatibility tool profiles to control MCP catalog size and capabilities
 - Structured Proxy-history search with filter-bound keyset cursors, field projection and a total response budget
@@ -286,7 +286,7 @@ The default **Core** profile exposes the modern tools used for compact discovery
 analysis and reviewed sends. Select **Full compatibility** in Burp to additionally expose the overlapping legacy
 history tools, raw tab constructors, editor controls and encoding utilities.
 
-With Burp Suite Professional, version 1.14.1 exposes **49 tools** in the default Core profile. Scanner and
+With Burp Suite Professional, version 1.14.2 exposes **49 tools** in the default Core profile. Scanner and
 Collaborator account for the Professional-only entries, so the exact count can differ by Burp edition and selected
 tool profile. `get_mcp_diagnostics` reports the active profile, tool count and complete schema size at runtime.
 
@@ -452,7 +452,7 @@ Organizer, Site Map and capture workflows also incorporate reviewed ideas from
 | `preview_request_mutation` | Render one explicit request mutation for review | No target traffic |
 | `send_mutated_request` | Send the exact reviewed mutation once | Preview hash and target approval required |
 | `get_mcp_diagnostics` | Show endpoints, runtime, catalog/schema cost, history index, per-tool output/timing, proxy and buffer status | No target traffic |
-| `get_mcp_action_log` | Show bounded local tool audit events and returned character counts | Never stores arguments or bodies |
+| `get_mcp_action_log` | Show bounded local tool audit events and returned character counts | Detailed mode includes bounded arguments; response bodies are not stored |
 
 ### WebSocket workflow
 
@@ -587,8 +587,11 @@ rewriting. `build`, `shadowJar` and the compatible `embedProxyJar` entry point a
 - Read-only tools do not generate target traffic. Creating a Repeater or Intruder tab also does not send it.
 - Captured authentication material is returned unchanged by default. `redactSecrets=true` is available only on
   tools that explicitly expose that option.
-- The action log stores tool name, timestamp, duration, returned character count and error text. It does not store
-  arguments or result bodies.
+- **Detailed logs** is enabled by default in Server Configuration and applies immediately. It adds arguments
+  (including configuration JSON) and error messages to the action log, and configuration values to extension output.
+  Turn it off for metadata-only new entries. Existing entries remain unchanged. Arguments are limited to 16,000
+  characters per event with an explicit truncation flag; error messages to 2,000. Response bodies are not stored.
+  This setting is independent of **Filter config credentials**, which controls exported configuration responses.
 - Repeater and Intruder buffers are memory-only, hold at most 1,000 exchanges per tool and are cleared when the
   MCP server or extension stops.
 - Repeater editor observations and title associations are memory-only, bounded to 1,000 entries per index and cleared
@@ -674,7 +677,7 @@ data class with the required parameters which will come from the LLM.
 The tool name is auto-derived from its parameters data class. A description is also needed for the LLM. You can return
 a string or a `List<ContentBlock>` to provide data back to the LLM.
 
-Extend the Paginated interface to add auto-pagination support.
+Extend the Paginated interface to add auto-pagination support. Paginated tools require `count=1..100` and a non-negative `offset`; larger results must be requested in multiple pages.
 
 ## Screenshot evidence with mcp-screenshot
 

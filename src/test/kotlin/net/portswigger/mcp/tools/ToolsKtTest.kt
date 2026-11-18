@@ -36,6 +36,7 @@ import net.portswigger.mcp.TestSseMcpClient
 import net.portswigger.mcp.config.McpConfig
 import net.portswigger.mcp.schema.HttpRequestResponse
 import net.portswigger.mcp.schema.toSerializableForm
+import net.portswigger.mcp.security.DataAccessSecurity
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
@@ -56,7 +57,9 @@ class ToolsKtTest {
     private val capturedRequest = slot<HttpRequest>()
 
     init {
+        var detailedLogging = false // Existing metadata-only tests explicitly opt out.
         val persistedObject = mockk<PersistedObject>().apply {
+            every { getBoolean("detailedLogging") } answers { detailedLogging }
             every { getBoolean("enabled") } returns true
             every { getBoolean("configEditingTooling") } returns true
             every { getBoolean("requireHttpRequestApproval") } returns false
@@ -69,7 +72,10 @@ class ToolsKtTest {
             every { getString("_toolProfile") } returns "FULL"
             every { getInteger("port") } returns testPort
             every { getInteger("_maxConcurrentRequests") } returns 2
-            every { setBoolean(any(), any()) } returns Unit
+            every { setBoolean(any(), any()) } answers {
+                if (firstArg<String>() == "detailedLogging") detailedLogging = secondArg()
+                Unit
+            }
             every { setString(any(), any()) } returns Unit
             every { setInteger(any(), any()) } returns Unit
         }
@@ -533,6 +539,77 @@ class ToolsKtTest {
     @Nested
     inner class ConfigurationToolsTests {
         @Test
+        fun `detailed logging changes immediately for arguments configs and errors`() = runBlocking {
+            val marker = "fixture-detailed-value"
+            val payload = "{\"project_options\":{\"password\":\"$marker\"}}"
+            val messages = mutableListOf<String>()
+            val logging = mockk<Logging>(relaxed = true)
+            val suite = mockk<burp.api.montoya.burpsuite.BurpSuite>(relaxed = true)
+            every { api.logging() } returns logging
+            every { logging.logToOutput(capture(messages)) } just runs
+            every { api.burpSuite() } returns suite
+            every { suite.importProjectOptionsFromJson(any()) } throws IllegalArgumentException("Rejected $marker")
+            ToolAuditLog.clear()
+            try {
+                config.detailedLogging = true
+                assertEquals(true, client.callTool("set_project_options", mapOf("json" to payload))?.isError)
+                val detailed = ToolAuditLog.snapshot(false).single()
+                assertTrue(detailed.arguments!!.contains(marker))
+                assertTrue(detailed.error!!.contains(marker))
+                assertTrue(messages.any { marker in it })
+
+                config.detailedLogging = false
+                messages.clear()
+                assertEquals(true, client.callTool("set_project_options", mapOf("json" to payload))?.isError)
+                val compact = ToolAuditLog.snapshot(false).last()
+                assertNull(compact.arguments)
+                assertFalse(compact.error!!.contains(marker))
+                assertTrue(messages.none { marker in it })
+                assertEquals(detailed, ToolAuditLog.snapshot(false).first(), "Changing mode must not rewrite old evidence")
+            } finally {
+                config.detailedLogging = false
+                ToolAuditLog.clear()
+            }
+        }
+
+        @Test
+        fun `configuration payloads are forwarded intact without leaking into logs`() = runBlocking {
+            val marker = "fixture-private-value"
+            val messages = mutableListOf<String>()
+            val logging = mockk<Logging>(relaxed = true)
+            val suite = mockk<burp.api.montoya.burpsuite.BurpSuite>(relaxed = true)
+            every { api.logging() } returns logging
+            every { logging.logToOutput(capture(messages)) } just runs
+            every { api.burpSuite() } returns suite
+            ToolAuditLog.clear()
+            try {
+                val projectJson = "{\"project_options\":{\"password\":\"$marker\"}}"
+                val userJson = "{\"user_options\":{\"password\":\"$marker\"}}"
+                assertEquals(false, client.callTool("set_project_options", mapOf("json" to projectJson))?.isError)
+                assertEquals(false, client.callTool("set_user_options", mapOf("json" to userJson))?.isError)
+                verify(exactly = 1) { suite.importProjectOptionsFromJson(projectJson) }
+                verify(exactly = 1) { suite.importUserOptionsFromJson(userJson) }
+
+                every { suite.importProjectOptionsFromJson(any()) } throws IllegalArgumentException("Rejected $projectJson")
+                every { suite.importUserOptionsFromJson(any()) } throws IllegalArgumentException("Rejected $userJson")
+                assertEquals(true, client.callTool("set_project_options", mapOf("json" to projectJson))?.isError)
+                assertEquals(true, client.callTool("set_user_options", mapOf("json" to userJson))?.isError)
+                every { suite.exportUserOptionsAsJson() } throws IllegalStateException("Export failed: $marker")
+                assertEquals(true, client.callTool("output_user_options", emptyMap())?.isError)
+                assertTrue(messages.isNotEmpty())
+                assertTrue(messages.none { marker in it || "password" in it })
+                val events = ToolAuditLog.snapshot(false)
+                assertEquals(5, events.size)
+                assertTrue(events.toString().contains("INVALID_ARGUMENT"))
+                assertTrue(events.last().error!!.contains("PRECONDITION_FAILED"))
+                assertFalse(events.toString().contains(marker))
+                assertFalse(events.toString().contains("password"))
+            } finally {
+                ToolAuditLog.clear()
+            }
+        }
+
+        @Test
         fun `set task execution engine state should work properly`() {
             val taskExecutionEngine = mockk<TaskExecutionEngine>()
             val burpSuite = mockk<burp.api.montoya.burpsuite.BurpSuite>()
@@ -744,6 +821,94 @@ class ToolsKtTest {
     
     @Nested
     inner class PaginatedToolsTests {
+        @Test
+        fun `malformed argument values are not retained in the action log`() = runBlocking {
+            val marker = "fixture-private-argument"
+            ToolAuditLog.clear()
+            try {
+                val result = client.callTool("get_proxy_http_history", mapOf("count" to marker, "offset" to 0))
+                assertEquals(true, result?.isError)
+                val event = ToolAuditLog.snapshot(false).single()
+                assertFalse(event.succeeded)
+                assertTrue(event.error!!.contains("INVALID_ARGUMENT"))
+                assertFalse(event.error!!.contains(marker))
+                val audit = client.callTool("get_mcp_action_log", emptyMap()).expectTextContent()
+                assertFalse(audit.contains(marker))
+            } finally {
+                ToolAuditLog.clear()
+            }
+        }
+
+        @Test
+        fun `invalid legacy pages fail before reading project data`() = runBlocking {
+            clearMocks(api, answers = false)
+            for (tool in listOf("get_proxy_http_history", "get_organizer_items", "get_organizer_items_regex")) {
+                for ((count, offset) in listOf(0 to 0, -1 to 0, 101 to 0, 1 to -1, Int.MAX_VALUE to 0)) {
+                    val arguments = mutableMapOf<String, Any>("count" to count, "offset" to offset)
+                    if (tool.endsWith("regex")) arguments["regex"] = ".*"
+                    val result = client.callTool(tool, arguments)
+                    assertEquals(true, result?.isError)
+                    assertEquals("INVALID_ARGUMENT", Json.parseToJsonElement(result.expectTextContent())
+                        .jsonObject.getValue("code").jsonPrimitive.content)
+                }
+            }
+            verify(exactly = 0) { api.proxy(); api.organizer() }
+        }
+
+        @Test
+        fun `denied legacy pages remain errors at every offset`() = runBlocking {
+            mockkObject(DataAccessSecurity)
+            try {
+                coEvery { DataAccessSecurity.checkDataAccessPermission(any(), any()) } returns false
+                clearMocks(api, answers = false)
+                for (tool in listOf("get_proxy_http_history", "get_organizer_items", "get_organizer_items_regex")) {
+                    for (offset in listOf(0, 10)) {
+                        val arguments = mutableMapOf<String, Any>("count" to 1, "offset" to offset)
+                        if (tool.endsWith("regex")) arguments["regex"] = ".*"
+                        val result = client.callTool(tool, arguments)
+                        assertEquals(true, result?.isError)
+                        val error = Json.parseToJsonElement(result.expectTextContent()).jsonObject
+                        assertEquals("PRECONDITION_FAILED", error.getValue("code").jsonPrimitive.content)
+                        assertTrue(error.getValue("message").jsonPrimitive.content.contains("access denied"))
+                    }
+                }
+                verify(exactly = 0) { api.proxy(); api.organizer() }
+            } finally {
+                unmockkObject(DataAccessSecurity)
+            }
+        }
+
+        @Test
+        fun `legacy pagination only reads the requested window without integer overflow`() = runBlocking {
+            val proxy = mockk<Proxy>()
+            val item = mockk<ProxyHttpRequestResponse>()
+            var reads = 0
+            // Virtual list makes a near-Int.MAX_VALUE offset test cheap and deterministic.
+            val history = object : AbstractList<ProxyHttpRequestResponse>() {
+                override val size = Int.MAX_VALUE
+                override fun get(index: Int): ProxyHttpRequestResponse {
+                    assertEquals(Int.MAX_VALUE - 1, index, "Skipped items must not be fetched or serialized")
+                    reads++
+                    return item
+                }
+            }
+            every { api.proxy() } returns proxy
+            every { proxy.history() } returns history
+            mockkStatic("net.portswigger.mcp.schema.SerializationKt")
+            every { item.toSerializableForm() } returns HttpRequestResponse(
+                request = "GET /last HTTP/1.1", response = "HTTP/1.1 200 OK", notes = "last"
+            )
+            val result = client.callTool("get_proxy_http_history",
+                mapOf("count" to 100, "offset" to Int.MAX_VALUE - 1))
+            assertEquals(false, result?.isError)
+            assertTrue(result.expectTextContent().contains("GET /last"))
+            assertEquals(1, reads)
+            val end = client.callTool("get_proxy_http_history",
+                mapOf("count" to 100, "offset" to Int.MAX_VALUE))
+            assertEquals("Reached end of items", end.expectTextContent())
+            assertEquals(1, reads)
+        }
+
         @Test
         fun `get proxy history should paginate properly`() {
             val proxy = mockk<Proxy>()

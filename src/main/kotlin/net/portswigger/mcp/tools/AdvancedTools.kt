@@ -321,8 +321,9 @@ internal fun Server.registerAdvancedTools(api: MontoyaApi, config: McpConfig, re
     }
 
     mcpTool<GetMcpActionLog>(
-        "Read the bounded local MCP action audit log. It records tool name, timestamp, duration and error only; " +
-            "request arguments and response bodies are never copied into the log.",
+        "Read the bounded local MCP action audit log. Detailed logs (enabled by default) include bounded arguments " +
+            "and error messages, potentially including credentials. When disabled, only operation metadata and error categories " +
+            "are recorded. Response bodies are not stored. Changing the toggle affects new entries only.",
         behavior = READ_ONLY_TOOL
     ) {
         validatePage(count, offset, 200)

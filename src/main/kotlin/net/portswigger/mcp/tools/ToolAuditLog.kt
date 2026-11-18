@@ -1,6 +1,7 @@
 package net.portswigger.mcp.tools
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import java.time.Instant
 
 private const val MAX_AUDIT_EVENTS = 500
@@ -12,7 +13,9 @@ data class ToolAuditEvent(
     val succeeded: Boolean,
     val durationMillis: Long,
     val error: String? = null,
-    val resultChars: Int = 0
+    val resultChars: Int = 0,
+    val arguments: String? = null,
+    val argumentsTruncated: Boolean = false
 )
 
 @Serializable
@@ -28,11 +31,23 @@ data class ToolMetricSummary(
 
 object ToolAuditLog {
     private val events = ArrayDeque<ToolAuditEvent>()
+    @Volatile private var detailedLogging: () -> Boolean = { false }
+
+    fun configureDetailedLogging(enabled: () -> Boolean) { detailedLogging = enabled }
+
 
     @Synchronized
-    fun add(tool: String, succeeded: Boolean, durationMillis: Long, error: String? = null, resultChars: Int = 0) {
+    fun add(tool: String, succeeded: Boolean, durationMillis: Long, error: Exception? = null,
+            resultChars: Int = 0, arguments: JsonObject? = null) {
+        val detailed = detailedLogging()
+        val rawArguments = if (detailed) arguments?.toString() else null
+        val failure = error?.let {
+            val category = "${toolErrorCode(it)} (${it.javaClass.simpleName})"
+            if (detailed) "$category: ${it.message.orEmpty().take(2000)}" else category
+        }
         events.addLast(ToolAuditEvent(Instant.now().toString(), tool, succeeded, durationMillis,
-            error?.take(1000), resultChars.coerceAtLeast(0)))
+            failure, resultChars.coerceAtLeast(0), rawArguments?.take(16_000),
+            argumentsTruncated = rawArguments != null && rawArguments.length > 16_000))
         while (events.size > MAX_AUDIT_EVENTS) events.removeFirst()
     }
 

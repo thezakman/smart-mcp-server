@@ -7,11 +7,28 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import net.portswigger.mcp.tools.coerceIntegralArguments
+import net.portswigger.mcp.tools.GetScannerIssues
+import net.portswigger.mcp.tools.GetProxyHttpHistory
+import net.portswigger.mcp.tools.GetOrganizerItems
+import net.portswigger.mcp.tools.GetOrganizerItemsRegex
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class JsonSchemaContractTest {
+    @Test
+    fun `legacy page schemas advertise their runtime bounds`() {
+        for (type in listOf(GetScannerIssues::class, GetProxyHttpHistory::class,
+            GetOrganizerItems::class, GetOrganizerItemsRegex::class)) {
+            val properties = type.asInputSchema().properties!!
+            val count = properties.getValue("count").jsonObject
+            val offset = properties.getValue("offset").jsonObject
+            assertEquals("1", count.getValue("minimum").jsonPrimitive.content)
+            assertEquals("100", count.getValue("maximum").jsonPrimitive.content)
+            assertEquals("0", offset.getValue("minimum").jsonPrimitive.content)
+        }
+    }
+
     @Serializable
     private data class LongInput(val id: Long)
 

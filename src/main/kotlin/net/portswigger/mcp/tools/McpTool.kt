@@ -69,10 +69,10 @@ inline fun <reified I : Any> Server.mcpTool(
                 isError = false
             )
             ToolAuditLog.add(toolName, true, (System.nanoTime() - startedAt) / 1_000_000,
-                resultChars = result.content.textCharacterCount())
+                resultChars = result.content.textCharacterCount(), arguments = request.params.arguments)
             result
         } catch (e: Exception) {
-            ToolAuditLog.add(toolName, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
+            ToolAuditLog.add(toolName, false, (System.nanoTime() - startedAt) / 1_000_000, e, arguments = request.params.arguments)
             structuredToolError(e)
         }
     }
@@ -119,6 +119,7 @@ inline fun <reified I : Paginated, J : Any> Server.mcpPaginatedTool(
 ) {
     mcpTool<I>(description, behavior, execute = {
 
+        validateHistoryPage(count, offset, 100)
         val items = execute(this)
 
         when {
@@ -127,7 +128,7 @@ inline fun <reified I : Paginated, J : Any> Server.mcpPaginatedTool(
             }
 
             else -> {
-                val upperLimit = (offset + count).coerceAtMost(items.size)
+                val upperLimit = (offset.toLong() + count).coerceAtMost(items.size.toLong()).toInt()
 
                 items.subList(offset, upperLimit)
                     .joinToString(separator = "\n\n", transform = mapper)
@@ -142,6 +143,7 @@ inline fun <reified I : Paginated> Server.mcpPaginatedTool(
     crossinline execute: I.() -> Sequence<String>
 ) {
     mcpTool<I>(description, behavior, execute = {
+        validateHistoryPage(count, offset, 100)
         val seq = execute(this)
         val paginated = seq.drop(offset).take(count).toList()
 
@@ -162,15 +164,15 @@ inline fun Server.mcpTool(
     behavior: ToolBehavior = ToolBehavior(),
     crossinline execute: () -> List<ContentBlock>
 ) {
-    val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, _ ->
+    val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, request ->
         val startedAt = System.nanoTime()
         try {
             val result = CallToolResult(content = execute(), isError = false)
             ToolAuditLog.add(name, true, (System.nanoTime() - startedAt) / 1_000_000,
-                resultChars = result.content.textCharacterCount())
+                resultChars = result.content.textCharacterCount(), arguments = request.params.arguments)
             result
         } catch (e: Exception) {
-            ToolAuditLog.add(name, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
+            ToolAuditLog.add(name, false, (System.nanoTime() - startedAt) / 1_000_000, e, arguments = request.params.arguments)
             structuredToolError(e)
         }
     }
@@ -189,15 +191,15 @@ inline fun Server.mcpTool(
     behavior: ToolBehavior = ToolBehavior(),
     crossinline execute: () -> String
 ) {
-    val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, _ ->
+    val handler: suspend (ClientConnection, CallToolRequest) -> CallToolResult = { _, request ->
         val startedAt = System.nanoTime()
         try {
             val result = CallToolResult(content = listOf(TextContent(execute())), isError = false)
             ToolAuditLog.add(name, true, (System.nanoTime() - startedAt) / 1_000_000,
-                resultChars = result.content.textCharacterCount())
+                resultChars = result.content.textCharacterCount(), arguments = request.params.arguments)
             result
         } catch (e: Exception) {
-            ToolAuditLog.add(name, false, (System.nanoTime() - startedAt) / 1_000_000, e.message)
+            ToolAuditLog.add(name, false, (System.nanoTime() - startedAt) / 1_000_000, e, arguments = request.params.arguments)
             structuredToolError(e)
         }
     }
@@ -210,13 +212,15 @@ inline fun Server.mcpTool(
     )
 }
 
+fun toolErrorCode(error: Exception): String = when (error) {
+    is ToolBusyException -> "BUSY"
+    is SerializationException, is IllegalArgumentException -> "INVALID_ARGUMENT"
+    is IllegalStateException -> "PRECONDITION_FAILED"
+    else -> "TOOL_EXECUTION_FAILED"
+}
+
 fun structuredToolError(error: Exception): CallToolResult {
-    val code = when (error) {
-        is ToolBusyException -> "BUSY"
-        is SerializationException, is IllegalArgumentException -> "INVALID_ARGUMENT"
-        is IllegalStateException -> "PRECONDITION_FAILED"
-        else -> "TOOL_EXECUTION_FAILED"
-    }
+    val code = toolErrorCode(error)
     val message = error.message?.take(2000) ?: error::class.simpleName ?: "Tool execution failed"
     val payload = buildJsonObject {
         put("ok", false)

@@ -113,6 +113,7 @@ class ServerConfigurationPanel(
             components = arrayOf(
                 filterConfigCredentialsCheckBox,
                 configEditingToolingCheckBox,
+                createDetailedLoggingToggle(),
                 createToolProfileSelector(),
                 createConcurrencySelector()
             )
@@ -231,6 +232,35 @@ class ServerConfigurationPanel(
                 toolTipText = "Core reduces MCP context size. Full preserves every compatibility tool."
             }, BorderLayout.WEST)
             add(selector, BorderLayout.CENTER)
+            maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
+        }
+    }
+
+    private fun createDetailedLoggingToggle(): JPanel {
+        val toggle = ToggleSwitch(config.detailedLogging) { config.detailedLogging = it }.apply {
+            name = "detailedLoggingToggle"
+            toolTipText = "Includes arguments, configuration values and error messages. Applies immediately to new entries."
+        }
+        val row = JPanel(BorderLayout(Design.Spacing.SM, 0)).apply {
+            isOpaque = false
+            add(JLabel("Detailed logs").apply {
+                font = Design.Typography.labelLarge
+                foreground = Design.Colors.onSurface
+                toolTipText = toggle.toolTipText
+            }, BorderLayout.WEST)
+            add(toggle, BorderLayout.EAST)
+        }
+        return JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+            alignmentX = LEFT_ALIGNMENT
+            row.alignmentX = LEFT_ALIGNMENT
+            add(row)
+            add(JLabel("Arguments, configuration and errors. Applies immediately.").apply {
+                font = Design.Typography.labelMedium
+                foreground = Design.Colors.onSurfaceVariant
+                alignmentX = LEFT_ALIGNMENT
+            })
             maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
         }
     }

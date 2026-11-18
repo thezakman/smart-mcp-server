@@ -1,6 +1,10 @@
 package net.portswigger.mcp.tools
 
 import burp.api.montoya.MontoyaApi
+import burp.api.montoya.organizer.OrganizerItem
+import burp.api.montoya.proxy.ProxyHttpRequestResponse
+import burp.api.montoya.scanner.audit.issues.AuditIssue
+import net.portswigger.mcp.schema.ToolField
 import burp.api.montoya.burpsuite.TaskExecutionEngine.TaskExecutionEngineState.PAUSED
 import burp.api.montoya.burpsuite.TaskExecutionEngine.TaskExecutionEngineState.RUNNING
 import burp.api.montoya.collaborator.InteractionFilter
@@ -110,6 +114,7 @@ private fun normalizePrelude(prelude: String): String = prelude
     .replace("\n", "\r\n")      // All LF → proper CRLF
 
 fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
+    ToolAuditLog.configureDetailedLogging { config.detailedLogging }
     val fullCatalog = config.toolProfile == ToolProfile.FULL
     val readOnlyCatalog = config.toolProfile == ToolProfile.READ_ONLY
     registerEvidenceCaptureGuide()
@@ -260,7 +265,10 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
             "User has disabled configuration editing. They can enable it in the MCP tab in Burp by selecting 'Enable tools that can edit your config'"
         mcpTool<SetProjectOptions>("Sets project-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'project_options' object.", BURP_GATED_TOOL) {
             if (config.configEditingTooling) {
-                api.logging().logToOutput("Setting project-level configuration: $json")
+                api.logging().logToOutput(if (config.detailedLogging)
+                    "Applying project-level configuration: " + json.take(16_000) +
+                        if (json.length > 16_000) "... (truncated)" else ""
+                else "Applying project-level configuration")
                 api.burpSuite().importProjectOptionsFromJson(json)
                 "Project configuration has been applied"
             } else {
@@ -269,7 +277,10 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         }
         mcpTool<SetUserOptions>("Sets user-level configuration in JSON format. This will be merged with existing configuration. Export it first to confirm the schema. The JSON must have a top-level 'user_options' object.", BURP_GATED_TOOL) {
             if (config.configEditingTooling) {
-                api.logging().logToOutput("Setting user-level configuration: $json")
+                api.logging().logToOutput(if (config.detailedLogging)
+                    "Applying user-level configuration: " + json.take(16_000) +
+                        if (json.length > 16_000) "... (truncated)" else ""
+                else "Applying user-level configuration")
                 api.burpSuite().importUserOptionsFromJson(json)
                 "User configuration has been applied"
             } else {
@@ -279,9 +290,10 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
     }
 
     if (api.burpSuite().version().edition() == BurpSuiteEdition.PROFESSIONAL) {
-        mcpPaginatedTool<GetScannerIssues>("Displays information about issues identified by the scanner") {
-            api.siteMap().issues().asSequence().map { Json.encodeToString(it.toSerializableForm()) }
-        }
+        mcpPaginatedTool<GetScannerIssues, AuditIssue>(
+            "Displays scanner issues. count=1..100; offset must be non-negative.",
+            mapper = { Json.encodeToString(it.toSerializableForm()) }
+        ) { api.siteMap().issues() }
 
         val collaboratorClient by lazy { api.collaborator().createClient() }
 
@@ -353,39 +365,39 @@ fun Server.registerTools(api: MontoyaApi, config: McpConfig) {
         }
     }
 
-    if (fullCatalog) mcpPaginatedTool<GetProxyHttpHistory>("Displays items within the proxy HTTP history") {
+    if (fullCatalog) mcpPaginatedTool<GetProxyHttpHistory, ProxyHttpRequestResponse>(
+        "Displays items within the proxy HTTP history. count=1..100; offset must be non-negative.",
+        mapper = { encodeHistoryItem(it.toSerializableForm()) }
+    ) {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.HTTP_HISTORY, config, api, "HTTP history")
         }
-        if (!allowed) {
-            return@mcpPaginatedTool sequenceOf("HTTP history access denied by Burp Suite")
-        }
-
-        api.proxy().history().asSequence().map { encodeHistoryItem(it.toSerializableForm()) }
+        check(allowed) { "HTTP history access denied by Burp Suite" }
+        api.proxy().history()
     }
 
-    if (fullCatalog) mcpPaginatedTool<GetOrganizerItems>("Displays items within the Organizer tab") {
+    if (fullCatalog) mcpPaginatedTool<GetOrganizerItems, OrganizerItem>(
+        "Displays items within the Organizer tab. count=1..100; offset must be non-negative.",
+        mapper = { encodeHistoryItem(it.toSerializableForm()) }
+    ) {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.ORGANIZER, config, api, "Organizer")
         }
-        if (!allowed) {
-            return@mcpPaginatedTool sequenceOf("Organizer access denied by Burp Suite")
-        }
-
-        api.organizer().items().asSequence().map { encodeHistoryItem(it.toSerializableForm()) }
+        check(allowed) { "Organizer access denied by Burp Suite" }
+        api.organizer().items()
     }
 
-    if (fullCatalog) mcpPaginatedTool<GetOrganizerItemsRegex>("Displays items matching a specified regex within the Organizer tab") {
+    if (fullCatalog) mcpPaginatedTool<GetOrganizerItemsRegex, OrganizerItem>(
+        "Displays items matching a specified regex within the Organizer tab. count=1..100; offset must be non-negative.",
+        mapper = { encodeHistoryItem(it.toSerializableForm()) }
+    ) {
         val allowed = runBlocking {
             checkDataAccessOrDeny(DataAccessType.ORGANIZER, config, api, "Organizer")
         }
-        if (!allowed) {
-            return@mcpPaginatedTool sequenceOf("Organizer access denied by Burp Suite")
-        }
+        check(allowed) { "Organizer access denied by Burp Suite" }
 
         val compiledRegex = Pattern.compile(regex)
-        api.organizer().items { it.contains(compiledRegex) }.asSequence()
-            .map { encodeHistoryItem(it.toSerializableForm()) }
+        api.organizer().items { it.contains(compiledRegex) }
     }
 
     if (fullCatalog) mcpTool<SetTaskExecutionEngineState>("Sets the state of Burp's task execution engine (paused or unpaused)") {
@@ -524,16 +536,37 @@ data class SetProxyInterceptState(val intercepting: Boolean)
 data class SetActiveEditorContents(val text: String)
 
 @Serializable
-data class GetScannerIssues(override val count: Int, override val offset: Int) : Paginated
+data class GetScannerIssues(
+    @ToolField("Page size.", minimum = 1, maximum = 100)
+    override val count: Int,
+    @ToolField("Number of items to skip.", minimum = 0)
+    override val offset: Int
+) : Paginated
 
 @Serializable
-data class GetProxyHttpHistory(override val count: Int, override val offset: Int) : Paginated
+data class GetProxyHttpHistory(
+    @ToolField("Page size.", minimum = 1, maximum = 100)
+    override val count: Int,
+    @ToolField("Number of items to skip.", minimum = 0)
+    override val offset: Int
+) : Paginated
 
 @Serializable
-data class GetOrganizerItems(override val count: Int, override val offset: Int) : Paginated
+data class GetOrganizerItems(
+    @ToolField("Page size.", minimum = 1, maximum = 100)
+    override val count: Int,
+    @ToolField("Number of items to skip.", minimum = 0)
+    override val offset: Int
+) : Paginated
 
 @Serializable
-data class GetOrganizerItemsRegex(val regex: String, override val count: Int, override val offset: Int) : Paginated
+data class GetOrganizerItemsRegex(
+    val regex: String,
+    @ToolField("Page size.", minimum = 1, maximum = 100)
+    override val count: Int,
+    @ToolField("Number of items to skip.", minimum = 0)
+    override val offset: Int
+) : Paginated
 
 @Serializable
 data class GenerateCollaboratorPayload(

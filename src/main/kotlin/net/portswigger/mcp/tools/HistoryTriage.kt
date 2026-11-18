@@ -152,6 +152,7 @@ internal fun selectHistory(
         (includeStatic || !isStaticHistoryUrl(safeHistory { it.finalRequest().url() }.orEmpty()))
 }.sortedByDescending { it.id() }.toList()
 
+@PublishedApi
 internal fun validateHistoryPage(count: Int, offset: Int, maximum: Int) {
     require(count in 1..maximum) { "count must be between 1 and $maximum" }
     require(offset >= 0) { "offset must be non-negative" }

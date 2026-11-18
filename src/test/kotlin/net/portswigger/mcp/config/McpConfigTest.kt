@@ -10,6 +10,18 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class McpConfigTest {
+    @Test
+    fun `detailed logging defaults on and persists an explicit opt out`() {
+        var stored: Boolean? = null
+        every { persistedObject.getBoolean("detailedLogging") } answers { stored }
+        every { persistedObject.setBoolean("detailedLogging", any()) } answers { stored = secondArg() }
+        assertTrue(config.detailedLogging)
+        config.detailedLogging = false
+        assertFalse(McpConfig(persistedObject, mockLogging).detailedLogging)
+        config.detailedLogging = true
+        assertTrue(McpConfig(persistedObject, mockLogging).detailedLogging)
+    }
+
 
     private lateinit var persistedObject: PersistedObject
     private lateinit var config: McpConfig

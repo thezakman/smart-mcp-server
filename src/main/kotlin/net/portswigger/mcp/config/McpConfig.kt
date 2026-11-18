@@ -49,6 +49,7 @@ class McpConfig(storage: PersistedObject, private val logging: Logging) {
         }
 
     var filterConfigCredentials by storage.boolean(true)
+    var detailedLogging by storage.boolean(true)
 
     private var _maxConcurrentRequests by storage.int(2)
     var maxConcurrentRequests: Int

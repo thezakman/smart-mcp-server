@@ -93,7 +93,7 @@ parameter. There is no automatic payload batch, retry loop or offensive system p
 `get_mcp_diagnostics` reports both endpoints, server state, tool/profile/schema size, indexed-history reuse,
 per-tool duration/output totals, Burp/JVM information, embedded-proxy presence and capture counts.
 `get_mcp_action_log` reads a 500-event in-memory ring containing tool name, timestamp, duration, success,
-returned character count and bounded error text. Arguments and result bodies are never copied into this log.
+returned character count and error category/type. Detailed logging adds bounded arguments and error messages; response bodies are not stored.
 
 ## UI and packaging
 
@@ -136,3 +136,15 @@ Integral MCP arguments use exact decimal conversion. Large native IDs retain the
 Outbound concurrency reconfiguration retains outstanding permits. Lowering the limit prevents new sends until existing work drains; diagnostics continue counting active requests and cannot become negative when older operations finish. Network operations run outside the accounting lock.
 
 WebSocket cleanup detaches its session snapshot before closing sockets and deregistering handlers. A handler registered after its session was removed is deregistered immediately, and queued inbound callbacks for removed/closed sessions are ignored. Cleanup of the detached snapshot does not erase newly registered sessions. These regressions are exercised locally with mocked sockets, without target traffic.
+
+## Legacy pagination bounds
+
+Scanner issues and Full-profile Proxy/Organizer pages validate count=1..100 and non-negative offset before project access. Their schemas advertise the same bounds. Pagination selects the requested list window before serializing messages; end offsets use widened arithmetic to avoid integer overflow. Access denial is a structured error at every offset, never an empty/end-of-items success. Clients requesting more than 100 entries must paginate.
+
+## Diagnostic logging modes
+
+The persisted Detailed logs toggle defaults to on and takes effect immediately for new events. Enabled mode retains up to 16,000 characters of argument JSON (with argumentsTruncated) and 2,000 characters of exception message, plus the error code/type. Configuration imports also log bounded configuration JSON. Disabled mode stores metadata and error code/type only. Existing entries are not rewritten. Config credential filtering remains independent; response bodies are not copied to the audit log.
+
+## Approval dialog lifecycle
+
+HTTP-target and project-data approval handlers dispatch through the Swing coroutine context. UI exceptions propagate to the awaiting caller instead of leaving a continuation unresolved. Cancellation before dispatch skips the dialog; cancellation received while it is open prevents a subsequent choice from updating persistent approval settings. An already open modal dialog is not automatically dismissed. These guarantees apply to cancellation reaching the approval coroutine; they do not claim cancellation of an HTTP request already sent.

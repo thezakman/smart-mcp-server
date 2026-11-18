@@ -160,7 +160,7 @@ class AdvancedToolsTest {
     @Test
     fun `tool metrics aggregate output cost and failures`() {
         ToolAuditLog.add("search_http_history", true, 10, resultChars = 120)
-        ToolAuditLog.add("search_http_history", false, 5, error = "busy")
+        ToolAuditLog.add("search_http_history", false, 5, error = ToolBusyException("busy"))
         ToolAuditLog.add("get_http_exchange", true, 20, resultChars = 900)
 
         val search = ToolAuditLog.metrics().first { it.tool == "search_http_history" }
